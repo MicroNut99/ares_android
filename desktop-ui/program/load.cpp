@@ -14,6 +14,15 @@ auto Program::identify(const string& filename) -> std::shared_ptr<Emulator> {
     }
   }
 
+  //CD32X build: a Sega CD disc can also be a Sega CD 32X disc. mia names the medium "Mega CD"
+  //for both, so offer the Mega CD 32X system (with the RAM cart) too, first in the list.
+  for(auto& emulator : emulators) {
+    if(emulator->name != "Mega CD 32X" || !emulator->configuration.visible) continue;
+    bool isMegaCD = std::ranges::any_of(matches, [](auto& match) { return match->name == "Mega CD"; });
+    bool listed = std::ranges::find(matches, emulator) != matches.end();
+    if(isMegaCD && !listed) matches.insert(matches.begin(), emulator);
+  }
+
   if(matches.size() == 1)  return matches.front();
 
   if(matches.size() > 1) {
