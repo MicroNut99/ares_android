@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Ares" parent="@android:style/Theme.Material">
+        <item name="android:colorPrimary">#1B1F27</item>
+        <item name="android:colorPrimaryDark">#111318</item>
+        <item name="android:colorAccent">#F2A33A</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">#111318</item>
+        <item name="android:navigationBarColor">#111318</item>
+    </style>
+    <style name="Theme.Ares.Fullscreen" parent="Theme.Ares">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>
