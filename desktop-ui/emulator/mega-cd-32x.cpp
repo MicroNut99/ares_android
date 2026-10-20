@@ -15,10 +15,14 @@ struct MegaCD32X : Emulator {
   string ramCartFile;
 };
 
-//one file per cart size, like separate physical carts: shared by every CD32X disc
+//one file per cart size, like separate physical carts: shared by every CD32X disc.
+//Kept in ares' Systems folder (next to ares.exe on Windows, or Settings > Paths > Home).
 auto MegaCD32X::ramCartLocation(u32 sizeMiB) -> string {
-  string directory = settings.paths.saves ? settings.paths.saves : string{Path::userData(), "ares/Saves/"};
-  directory.append("Mega CD 32X/");
+  #if defined(PLATFORM_WINDOWS)
+  string directory = settings.paths.home ? settings.paths.home : string{Path::program(), "Systems/"};
+  #else
+  string directory = mia::homeLocation();
+  #endif
   directory::create(directory);
   return {directory, "RAM Cart ", sizeMiB, " MB.ram"};
 }

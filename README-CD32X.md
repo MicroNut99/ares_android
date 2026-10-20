@@ -16,7 +16,7 @@ the game into. Without it those discs stop at the boot splash in every emulator.
 4. **Load → Sega → Mega CD 32X**, pick the game's `.cue`.
 
 The cart's contents are saved (battery-backed, like the real cart) to
-`Saves/Mega CD 32X/RAM Cart <size> MB.ram` in ares' data folder, one file per size,
+`Systems\RAM Cart <size> MB.ram` next to `ares.exe`, one file per size,
 shared by all discs, exactly as one physical cart is. Delete the file to "wipe" it.
 
 ## What is emulated
