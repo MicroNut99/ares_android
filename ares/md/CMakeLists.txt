@@ -77,6 +77,7 @@ ares_add_sources(
     cartridge/board/j-cart.cpp
     cartridge/board/linear.cpp
     cartridge/board/mega-32x.cpp
+    cartridge/board/ram-cart.cpp
     cartridge/board/realtec.cpp
     cartridge/board/standard.cpp
     cartridge/board/svp.cpp

@@ -3,6 +3,7 @@
 
 # Except for default project files
 !/.github
+!/android
 !/ares
 !/desktop-ui
 !/hiro
@@ -51,3 +52,10 @@ tests/m68000/tests
 # Exclude unused legacy zlib header that is renamed by CMake
 thirdparty/libchdr/deps/zlib-*/zconf.h
 thirdparty/libchdr/deps/zlib-*/zconf.h.included
+
+# Android build outputs
+/android/.gradle
+/android/build
+/android/app/build
+/android/app/.cxx
+/android/local.properties

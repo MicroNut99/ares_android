@@ -22,6 +22,8 @@ auto Cartridge::connect() -> void {
 
   if(pak->attribute("mega32x").boolean()) {
     board = std::make_unique<Board::Mega32X>(*this);
+  } else if(pak->attribute("ramcart").boolean()) {
+    board = std::make_unique<Board::RamCart>(*this);
   } else if(pak->read("svp.rom")) {
     board = std::make_unique<Board::SVP>(*this);
   } else if(pak->attribute("label") == "Game Genie") {

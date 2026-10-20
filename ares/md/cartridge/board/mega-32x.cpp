@@ -3,7 +3,9 @@ struct Mega32X : Interface {
   std::unique_ptr<Board::Interface> board;
 
   auto load() -> void override {
-    if(pak) {
+    if(pak && pak->attribute("ramcart").boolean()) {
+      board = std::make_unique<Board::RamCart>(*cartridge);
+    } else if(pak) {
       board = std::make_unique<Board::Standard>(*cartridge);
     } else {
       board = std::make_unique<Board::Interface>(*cartridge);

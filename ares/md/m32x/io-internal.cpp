@@ -16,7 +16,10 @@ auto M32X::readInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> n16 {
       data.bit(3) = shs.irq.vint.enable;
     }
     data.bit( 7) = io.hintVblank;
-    data.bit( 8) = !(bool)cartridge.child->pak;  //0 = cartridge connected
+    //0 = cartridge connected. This is the CART_IN line, not "something is in the slot":
+    //a RAM cart on top of a 32X + Mega CD does not assert it, so the SH2 boot ROMs take
+    //the CD boot path ("_CD_") instead of looking for a cartridge header.
+    data.bit( 8) = !((bool)cartridge.child->pak && cartridge.bootable());
     data.bit( 9) = io.adapterEnable;
     data.bit(15) = vdp.framebufferAccess;
   }
