@@ -31,6 +31,12 @@ ImportExportSettings& importExportSettings = settingsWindow.importExportSettings
 auto Settings::load() -> void {
   Markup::Node::operator=(BML::unserialize(string::read(filePath), " "));
   process(true);
+  //CD32X build: ares used to pause whenever its window lost focus. Switch a saved "Pause"
+  //(upstream's default) to "Block" once; a choice made after that is kept.
+  if(!input.keepRunningApplied) {
+    if(input.defocus == "Pause") input.defocus = "Block";
+    input.keepRunningApplied = true;
+  }
   save();
 }
 
@@ -98,6 +104,7 @@ auto Settings::process(bool load) -> void {
 
   bind(string,  "Input/Driver", input.driver);
   bind(string,  "Input/Defocus", input.defocus);
+  bind(boolean, "Input/KeepRunningApplied", input.keepRunningApplied);
 
   bind(boolean, "Boot/Fast", boot.fast);
   bind(boolean, "Boot/Debugger", boot.debugger);

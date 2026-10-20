@@ -64,7 +64,8 @@ struct Settings : Markup::Node {
 
   struct Input {
     string driver;
-    string defocus = "Pause";
+    string defocus = "Block";       //CD32X build: keep running when the window loses focus
+    bool keepRunningApplied = false;  //one-time switch of an old saved "Pause" to "Block"
   } input;
 
   struct Boot {
