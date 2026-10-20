@@ -19,6 +19,24 @@ The cart's contents are saved (battery-backed, like the real cart) to
 `Systems\RAM Cart <size> MB.ram` next to `ares.exe`, one file per size,
 shared by all discs, exactly as one physical cart is. Delete the file to "wipe" it.
 
+## Use (Android)
+
+1. Install `ares-cd32x-android-arm64.apk` from the **`android-latest`** release
+   (Android 8 or newer, 64-bit ARM). Allow installs from your browser or file manager.
+2. Open it and allow **"manage all files"**: a `.cue` names its `.bin` by path, so ares reads
+   your game folders directly. Its own files go in `/sdcard/ares/`.
+3. **Settings → Sega CD BIOS**: pick your BIOS files. **RAM cart**: 4, 8 or 16 MB (default 16).
+4. Browse to a `.cue` and tap it. Discs boot as **Sega CD 32X + RAM cart**; long-press a game to
+   boot it as plain Sega CD instead, or to add a Sega CD disc to a 32X / Genesis cartridge.
+
+The RAM cart is `/sdcard/ares/Systems/RAM Cart <size> MB.ram`, the same format and name as on
+Windows: copy it between the PC's `Systems\` folder and the phone to carry a loaded cart over.
+Save states go in `/sdcard/ares/States/`.
+
+Controls: the on-screen 6-button pad, or a controller (X = A, A = B, B = C, L1 = X, Y = Y,
+R1 = Z, Start, Select = Mode; R2 holds fast-forward). Back or ☰ opens the menu (save / load
+state, reset, log, quit). *Show fps and COMM12 STATE* in Settings shows the boot stack's status.
+
 ## What is emulated
 
 | | |
