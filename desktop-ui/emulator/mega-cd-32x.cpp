@@ -6,9 +6,29 @@ struct MegaCD32X : Emulator {
   auto save() -> bool override;
   auto pak(ares::Node::Object) -> std::shared_ptr<vfs::directory> override;
 
+  auto ramCartLocation(u32 sizeMiB) -> string;
+  auto saveRamCart() -> void;
+
   u32 regionID = 0;
   sTimer discTrayTimer;
+  std::shared_ptr<vfs::directory> ramCart;  //MicroNut99 RAM cart / 16MB-PCB-CD32X in the cartridge slot
+  string ramCartFile;
 };
+
+//one file per cart size, like separate physical carts: shared by every CD32X disc
+auto MegaCD32X::ramCartLocation(u32 sizeMiB) -> string {
+  string directory = settings.paths.saves ? settings.paths.saves : string{Path::userData(), "ares/Saves/"};
+  directory.append("Mega CD 32X/");
+  directory::create(directory);
+  return {directory, "RAM Cart ", sizeMiB, " MB.ram"};
+}
+
+auto MegaCD32X::saveRamCart() -> void {
+  if(!ramCart || !ramCartFile) return;
+  if(auto fp = ramCart->read("ram.cart")) {
+    file::write(ramCartFile, {fp->data(), fp->size()});
+  }
+}
 
 MegaCD32X::MegaCD32X() {
   manufacturer = "Sega";
@@ -77,6 +97,26 @@ auto MegaCD32X::load() -> LoadResult {
 
   ares::MegaDrive::option("Recompiler", !settings.general.forceInterpreter);
 
+  ramCart.reset();
+  ramCartFile = {};
+  if(settings.megadrive.ramCart) {
+    u32 sizeMiB = settings.megadrive.ramCartSize;
+    if(sizeMiB != 8 && sizeMiB != 16) sizeMiB = 4;
+    ramCartFile = ramCartLocation(sizeMiB);
+    ramCart = std::make_shared<vfs::directory>();
+    ramCart->setAttribute("title", "RAM Cart");
+    ramCart->setAttribute("region", "NTSC-U, NTSC-J, PAL");
+    ramCart->setAttribute("bootable", false);  //no CART_IN: the disc boots
+    ramCart->setAttribute("mega32x", true);
+    ramCart->setAttribute("ramcart", true);
+    ramCart->setAttribute("size", sizeMiB << 20);
+    ramCart->setAttribute("writeProtect", settings.megadrive.ramCartWriteProtect);
+    std::vector<u8> memory(sizeMiB << 20, 0xff);
+    auto existing = file::read(ramCartFile);
+    if(!existing.empty()) memcpy(memory.data(), existing.data(), min(existing.size(), memory.size()));
+    ramCart->append("ram.cart", memory);
+  }
+
   if(!ares::MegaDrive::load(root, {"[Sega] Mega CD 32X (", region, ")"})) return otherError;
 
   if(auto port = root->find<ares::Node::Port>("Cartridge Slot")) {
@@ -137,19 +177,23 @@ auto MegaCD32X::load(Menu menu) -> void {
 }
 
 auto MegaCD32X::unload() -> void {
-  Emulator::unload();
+  Emulator::unload();  //calls save(), which writes the RAM cart
   discTrayTimer.reset();
+  ramCart.reset();
+  ramCartFile = {};
 }
 
 auto MegaCD32X::save() -> bool {
-  root->save();
+  root->save();  //the RAM cart board copies its SRAM into the pak here
   system->save(game->location);
   game->save(game->location);
+  saveRamCart();
   return true;
 }
 
 auto MegaCD32X::pak(ares::Node::Object node) -> std::shared_ptr<vfs::directory> {
   if(node->name() == "Mega Drive") return system->pak;
   if(node->name() == "Mega CD Disc") return game->pak;
+  if(node->name() == "Mega Drive Cartridge") return ramCart;
   return {};
 }

@@ -149,7 +149,7 @@ int main(int argc, char** argv) {
     if(session.copyFrame(frame, serial)) serial = frame.serial;
     if(auto it = shots.find(f); it != shots.end()) {
       writePPM(it->second, frame);
-      printf("frame %u: screenshot %s (%ux%u)\n", f, it->second.c_str(), frame.width, frame.height);
+      printf("frame %u: screenshot %s (%ux%u, aspect %.3f)\n", f, it->second.c_str(), frame.width, frame.height, frame.aspect);
     }
 
     if(f % 60 == 59) {

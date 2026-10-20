@@ -1,6 +1,7 @@
 name: Push
+# This fork builds with cd32x-windows.yml (and android.yml); upstream's full matrix is manual.
 on:
-  push
+  workflow_dispatch
 concurrency:
   group: '${{ github.workflow }} @ ${{ github.head_ref || github.ref }}'
   cancel-in-progress: true

@@ -135,6 +135,9 @@ auto Settings::process(bool load) -> void {
   bind(boolean, "GameBoyAdvance/Player", gameBoyAdvance.player);
 
   bind(boolean, "MegaDrive/TMSS", megadrive.tmss);
+  bind(boolean, "MegaDrive/RAMCart", megadrive.ramCart);
+  bind(natural, "MegaDrive/RAMCartSize", megadrive.ramCartSize);
+  bind(boolean, "MegaDrive/RAMCartWriteProtect", megadrive.ramCartWriteProtect);
 
   for(u32 index : range(9)) {
     string name = {"Recent/Game-", 1 + index};

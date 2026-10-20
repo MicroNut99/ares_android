@@ -1,0 +1,71 @@
+name: ares CD32X (Windows)
+# Builds desktop ares for Windows x64 with the Sega CD 32X RAM cart (4 / 8 / 16 MB)
+# and publishes it as the "cd32x-latest" pre-release of this repository.
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ 'android/**', '**.md' ]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: cd32x-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: 'msys2 {0}'
+    steps:
+    - name: Install MSYS2 Dependencies
+      uses: msys2/setup-msys2@40677d36a502eb2cf0fb808cc9dec31bf6152638
+      with:
+        msystem: clang64
+        install: make git cmake ccache ninja mingw-w64-clang-x86_64-clang
+    - name: Checkout source code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        fetch-depth: 0
+    - name: Setup MSYS2 Git Environment
+      run: git config core.autocrlf true
+    - name: Build
+      run: .github/scripts/build_windows.sh
+      env:
+        ARES_BUILD_OFFICIAL: false
+        ARES_PLATFORM_NAME: windows-x64
+        CROSS_COMPILE: false
+        TARGET_PRESET: windows-ci-mingw-native
+    - name: Package
+      shell: pwsh
+      run: |
+        Copy-Item README-CD32X.md build/desktop-ui/rundir/
+        Compress-Archive -Path build/desktop-ui/rundir/* -DestinationPath ares-cd32x-windows-x64.zip
+    - name: Upload Build
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: ares-cd32x-windows-x64
+        path: ares-cd32x-windows-x64.zip
+
+  publish:
+    needs: windows-x64
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: ares-cd32x-windows-x64
+    - name: Publish pre-release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        notes="ares v148 + Sega CD 32X RAM cart (4/8/16 MB). Built from ${GITHUB_SHA::7}."
+        if gh release view cd32x-latest >/dev/null 2>&1; then
+          gh release edit cd32x-latest --notes "$notes" --target "$GITHUB_SHA"
+        else
+          gh release create cd32x-latest --prerelease --title "ares CD32X (Windows, latest)" --notes "$notes" --target "$GITHUB_SHA"
+        fi
+        git_ref="refs/tags/cd32x-latest"
+        gh api -X PATCH "repos/$GH_REPO/git/$git_ref" -f sha="$GITHUB_SHA" -F force=true || true
+        gh release upload cd32x-latest ares-cd32x-windows-x64.zip --clobber

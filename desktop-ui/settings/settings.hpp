@@ -125,6 +125,9 @@ struct Settings : Markup::Node {
 
   struct MegaDrive {
     bool tmss = false;
+    bool ramCart = true;              //Mega CD 32X: MicroNut99 RAM cart in the cartridge slot
+    u32 ramCartSize = 4;              //MiB: 4 (RAM cart), 8 or 16 (16MB-PCB-CD32X, paged)
+    bool ramCartWriteProtect = false;
   } megadrive;
 };
 
@@ -298,6 +301,11 @@ struct OptionSettings : VerticalLayout {
     HorizontalLayout megaDriveTmssLayout{this, Size{~0, 0}, 5};
       CheckLabel megaDriveTmssOption{&megaDriveTmssLayout, Size{0, 0}, 5};
       Label megaDriveTmssHint{&megaDriveTmssLayout, Size{0, layoutVertSize}};
+    HorizontalLayout megaDriveRamCartLayout{this, Size{~0, 0}, 5};
+      CheckLabel megaDriveRamCartOption{&megaDriveRamCartLayout, Size{0, 0}, 5};
+      ComboButton megaDriveRamCartSizeOption{&megaDriveRamCartLayout, Size{0, 0}};
+      CheckLabel megaDriveRamCartWriteProtectOption{&megaDriveRamCartLayout, Size{0, 0}, 5};
+      Label megaDriveRamCartHint{&megaDriveRamCartLayout, Size{0, layoutVertSize}};
 };
 
 struct FirmwareSettings : VerticalLayout {
