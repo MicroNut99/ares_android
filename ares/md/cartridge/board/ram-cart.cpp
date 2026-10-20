@@ -78,8 +78,11 @@ struct RamCart : Interface {
 
   auto writeIO(n1 upper, n1 lower, n24 address, n16 data) -> void override {
     if(!pageable || !upper) return;  //the page latch sits on /UWR, D8-D10
-    if(address == 0xa130f0) page[0] = data.bit(8,10) & pageMask;
-    if(address == 0xa130f2) page[1] = data.bit(8,10) & pageMask;
+    if(address < 0xa13000 || address > 0xa130ff) return;  //only /TIME space
+    //the GreenPAK decodes CA1 and CA2 only: window 0 answers wherever (address & 6) == 0
+    //(0xa130f0, 0xa13000, 0xa13008, ...), window 1 where it is 2 (0xa130f2, ...)
+    if(address.bit(2)) return;
+    page[address.bit(1)] = data.bit(8,10) & pageMask;
   }
 
   auto power(bool reset) -> void override {
