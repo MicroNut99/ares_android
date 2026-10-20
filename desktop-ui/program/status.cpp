@@ -32,6 +32,8 @@ auto Program::updateMessage() -> void {
   }
 
   
+  bool defocused = settings.input.defocus == "Pause" && !ruby::video.fullScreen() && !presentation.focused();
+  if(emulator && defocused) message.text = "Paused";
 }
 
 auto Program::showMessage(const string& text) -> void {

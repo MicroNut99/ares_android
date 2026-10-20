@@ -83,9 +83,9 @@ auto Program::emulatorRunLoop(uintptr_t) -> void {
       continue;
     }
 
-    //CD32X build: never pause when the window loses focus (Settings > Drivers only chooses
-    //whether input from other windows is blocked or allowed)
-    if(!emulator || (paused && !program.requestFrameAdvance)) {
+    bool defocused = settings.input.defocus == "Pause" && !ruby::video.fullScreen() && !presentation.focused();
+
+    if(!emulator || (paused && !program.requestFrameAdvance) || defocused) {
       ruby::audio.clear();
       nall::GDB::server.updateLoop();
       usleep(20 * 1000);

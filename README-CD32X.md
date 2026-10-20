@@ -15,10 +15,10 @@ the game into. Without it those discs stop at the boot splash in every emulator.
    if wanted, *Write-protect*. Changes apply at the next load.
 4. **Load → Sega → Mega CD 32X**, pick the game's `.cue`.
 
-ares never pauses when its window loses focus: the game and its music go on. Settings → Drivers
-→ Input → *When focus is lost* only chooses *Block input* (the default: keys typed in other
-windows don't reach the game) or *Allow input* (a controller keeps working while another window
-is in front).
+ares keeps running when its window loses focus (Settings → Drivers → Input → *When focus is
+lost: Block input*): the game and its music go on, and keys typed in other windows don't reach
+it. Choose *Pause emulation* there for upstream's behaviour, or *Allow input* to keep a
+controller working while another window is in front.
 
 Each cart is saved (battery-backed, like the real cart) to `Systems\RAM Cart 16 MB-<n>.ram`
 next to `ares.exe`: nine separate carts, each shared by every disc you run with it, exactly
