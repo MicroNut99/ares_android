@@ -72,6 +72,10 @@ class SettingsActivity : Activity() {
             "R2 holds fast-forward. During play, Back opens the menu.")
 
         section("About")
+        column.addView(TextView(this).apply {
+            text = "SEGA CD32X by MicroNut99 2026"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE); setPadding(0, 0, 0, 8)
+        })
         note("ares v148 for Android, Mega Drive family only (Genesis, Sega CD, 32X, Sega CD 32X), with the CD32X RAM cart. " +
             "ares is ISC-licensed; this build: github.com/MicroNut99/ares_android")
     }

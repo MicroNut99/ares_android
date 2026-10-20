@@ -421,7 +421,7 @@ Presentation::Presentation() {
     AboutDialog()
     .setName(ares::Name)
     .setLogo(logo)
-    .setDescription({ares::Name, " — a simplified multi-system emulator"})
+    .setDescription({ares::Name, " — a simplified multi-system emulator\nSEGA CD32X by MicroNut99 2026"})
     .setVersion(ares::Version)
     .setCopyright(ares::Copyright)
     .setLicense(ares::License, ares::LicenseURI)
