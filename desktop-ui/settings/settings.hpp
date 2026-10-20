@@ -64,8 +64,7 @@ struct Settings : Markup::Node {
 
   struct Input {
     string driver;
-    string defocus = "Block";       //CD32X build: keep running when the window loses focus
-    bool keepRunningApplied = false;  //one-time switch of an old saved "Pause" to "Block"
+    string defocus = "Block";  //"Block" or "Allow": the CD32X build never pauses on focus loss
   } input;
 
   struct Boot {
@@ -423,10 +422,9 @@ struct DriverSettings : VerticalLayout {
     Label inputDriverActive{&inputDriverLayout, Size{0, 0}};
   HorizontalLayout inputDefocusLayout{this, Size{~0, 0}};
     Label inputDefocusLabel{&inputDefocusLayout, Size{0, 0}};
-    RadioLabel inputDefocusPause{&inputDefocusLayout, Size{0, 0}};
     RadioLabel inputDefocusBlock{&inputDefocusLayout, Size{0, 0}};
     RadioLabel inputDefocusAllow{&inputDefocusLayout, Size{0, 0}};
-    Group inputDefocusGroup{&inputDefocusPause, &inputDefocusBlock, &inputDefocusAllow};
+    Group inputDefocusGroup{&inputDefocusBlock, &inputDefocusAllow};
 };
 
 struct DebugSettings : VerticalLayout {
