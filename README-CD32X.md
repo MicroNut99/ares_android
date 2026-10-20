@@ -11,13 +11,15 @@ the game into. Without it those discs stop at the boot splash in every emulator.
 2. **Settings → Firmware → Mega CD**: set the Sega CD BIOS (US / Japan / Europe).
    The 32X boot ROMs are built in.
 3. **Settings → Options → Mega Drive Settings**: `Mega CD 32X: RAM cart` is on by
-   default. Pick **4 MB** (MicroNut99 RAM cart) or **8 / 16 MB** (16MB-PCB-CD32X,
-   paged) and, if wanted, *Write-protect*. Changes apply at the next load.
+   default. Pick which **16 MB cart (1-9)** is in the slot (the paged 16MB-PCB-CD32X) and,
+   if wanted, *Write-protect*. Changes apply at the next load.
 4. **Load → Sega → Mega CD 32X**, pick the game's `.cue`.
 
-The cart's contents are saved (battery-backed, like the real cart) to
-`Systems\RAM Cart <size> MB.ram` next to `ares.exe`, one file per size,
-shared by all discs, exactly as one physical cart is. Delete the file to "wipe" it.
+Each cart is saved (battery-backed, like the real cart) to `Systems\RAM Cart 16 MB-<n>.ram`
+next to `ares.exe`: nine separate carts, each shared by every disc you run with it, exactly
+as a physical cart is. Delete a file to "wipe" that cart. (A `RAM Cart 16 MB.ram` from the
+first build becomes cart 1.) Games that know only the 4 MB cart see its layout: after reset
+the 16 MB board shows pages 0 and 1, which is the 4 MB cart.
 
 ## Use (Android)
 
@@ -25,11 +27,13 @@ shared by all discs, exactly as one physical cart is. Delete the file to "wipe" 
    (Android 8 or newer, 64-bit ARM). Allow installs from your browser or file manager.
 2. Open it and allow **"manage all files"**: a `.cue` names its `.bin` by path, so ares reads
    your game folders directly. Its own files go in `/sdcard/ares/`.
-3. **Settings → Sega CD BIOS**: pick your BIOS files. **RAM cart**: 4, 8 or 16 MB (default 16).
+3. **Settings → Sega CD BIOS**: pick your BIOS files. **RAM cart**: which 16 MB cart (1-9) is in
+   the slot. During play, *Insert RAM cart…* in the menu swaps carts (the game restarts, as on
+   the console).
 4. Browse to a `.cue` and tap it. Discs boot as **Sega CD 32X + RAM cart**; long-press a game to
    boot it as plain Sega CD instead, or to add a Sega CD disc to a 32X / Genesis cartridge.
 
-The RAM cart is `/sdcard/ares/Systems/RAM Cart <size> MB.ram`, the same format and name as on
+The carts are `/sdcard/ares/Systems/RAM Cart 16 MB-<n>.ram`, the same format and names as on
 Windows: copy it between the PC's `Systems\` folder and the phone to carry a loaded cart over.
 Save states go in `/sdcard/ares/States/`.
 

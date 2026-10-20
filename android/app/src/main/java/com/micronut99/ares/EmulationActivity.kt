@@ -39,6 +39,7 @@ class EmulationActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
 
     private var game = ""
+    private var startIntent: Intent? = null
     private var loaded = false
     private var menuOpen = false
     private var fastForward = false
@@ -87,6 +88,7 @@ class EmulationActivity : Activity() {
     }
 
     private fun startGame(intent: Intent) {
+        startIntent = intent
         game = intent.getStringExtra(EXTRA_GAME) ?: return finish()
         val disc = intent.getStringExtra(EXTRA_DISC) ?: ""
         val machine = intent.getIntExtra(EXTRA_MACHINE, NativeBridge.AUTO)
@@ -94,12 +96,12 @@ class EmulationActivity : Activity() {
         status.text = "Loading ${File(game).name}…"
         prefs.systems.mkdirs()
         val home = prefs.systems.absolutePath + "/"
-        val cartSize = prefs.ramCartSize
+        val cartSlot = prefs.ramCartSlot
         thread(name = "ares-load") {
             val error = NativeBridge.nativeLoad(
                 home, game, disc, machine, prefs.region,
                 prefs.biosUS, prefs.biosJP, prefs.biosEU,
-                prefs.ramCartFile(cartSize).absolutePath, cartSize, prefs.ramCartWriteProtect, prefs.recompiler,
+                prefs.ramCartFile(cartSlot).absolutePath, 16, prefs.ramCartWriteProtect, prefs.recompiler,
             )
             runOnUiThread {
                 if (error != null) {
@@ -262,6 +264,7 @@ class EmulationActivity : Activity() {
             if (fastForward) "Fast-forward: on" else "Fast-forward: off",
             if (prefs.touchControls) "Hide touch controls" else "Show touch controls",
             "Reset",
+            "Insert RAM cart… (now: cart ${prefs.ramCartSlot})",
             "Log",
             "Quit",
         )
@@ -288,11 +291,25 @@ class EmulationActivity : Activity() {
                     }
                     6 -> NativeBridge.nativeReset()
                     7 -> {
+                        //power off, swap the cart, power on: the current cart is written to its file first
+                        AlertDialog.Builder(this).setTitle("Insert which 16 MB cart? (restarts the game)")
+                            .setItems((1..9).map { n ->
+                                "Cart $n" + (if (n == prefs.ramCartSlot) "  (in the slot)" else "") +
+                                    (if (prefs.ramCartFile(n).exists()) "" else "  blank")
+                            }.toTypedArray()) { _, i ->
+                                prefs.ramCartSlot = i + 1
+                                menuOpen = false
+                                startIntent?.let { startGame(it) }
+                            }
+                            .setOnCancelListener { closeMenu() }.show()
+                        return@setItems
+                    }
+                    8 -> {
                         AlertDialog.Builder(this).setTitle("Log").setMessage(NativeBridge.nativeTakeLog().ifBlank { "(empty)" })
                             .setPositiveButton("OK", null).setOnDismissListener { closeMenu() }.show()
                         return@setItems
                     }
-                    8 -> { finish(); return@setItems }
+                    9 -> { finish(); return@setItems }
                 }
                 closeMenu()
             }

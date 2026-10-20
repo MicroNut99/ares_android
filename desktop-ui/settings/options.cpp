@@ -108,19 +108,19 @@ auto OptionSettings::construct() -> void {
   megaDriveRamCartOption.setText("Mega CD 32X: RAM cart").setChecked(settings.megadrive.ramCart).onToggle([&] {
     settings.megadrive.ramCart = megaDriveRamCartOption.checked();
   });
-  for(u32 size : {4, 8, 16}) {
-    ComboButtonItem item{&megaDriveRamCartSizeOption};
-    item.setText({size, " MB"});
-    item.setAttribute("size", string{size});
-    if(size == settings.megadrive.ramCartSize) item.setSelected();
+  for(u32 slot : range(1, 10)) {
+    ComboButtonItem item{&megaDriveRamCartSlotOption};
+    item.setText({"16 MB cart ", slot});
+    item.setAttribute("slot", string{slot});
+    if(slot == settings.megadrive.ramCartSlot) item.setSelected();
   }
-  megaDriveRamCartSizeOption.onChange([&] {
-    settings.megadrive.ramCartSize = megaDriveRamCartSizeOption.selected().attribute("size").natural();
+  megaDriveRamCartSlotOption.onChange([&] {
+    settings.megadrive.ramCartSlot = megaDriveRamCartSlotOption.selected().attribute("slot").natural();
   });
   megaDriveRamCartWriteProtectOption.setText("Write-protect").setChecked(settings.megadrive.ramCartWriteProtect).onToggle([&] {
     settings.megadrive.ramCartWriteProtect = megaDriveRamCartWriteProtectOption.checked();
   });
   megaDriveRamCartLayout.setAlignment(1).setPadding(12_sx, 0);
-    megaDriveRamCartHint.setText("Battery-backed SRAM cart for CD32X discs; 8/16 MB = paged 16MB-PCB-CD32X (0xA130F0/F2). Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
+    megaDriveRamCartHint.setText("16 MB paged SRAM cart (16MB-PCB-CD32X) for CD32X discs; carts 1-9 are separate files in Systems. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
 
 }

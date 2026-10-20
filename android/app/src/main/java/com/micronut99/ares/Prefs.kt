@@ -14,14 +14,21 @@ class Prefs(context: Context) {
     val systems: File get() = File(base, "Systems")
     val states: File get() = File(base, "States")
 
-    fun ramCartFile(sizeMiB: Int) = File(systems, "RAM Cart $sizeMiB MB.ram")
+    /** 16 MB carts 1-9 (16MB-PCB-CD32X), one file each, named as on Windows ares. */
+    fun ramCartFile(slot: Int): File {
+        val file = File(systems, "RAM Cart 16 MB-$slot.ram")
+        //the first build kept one cart as "RAM Cart 16 MB.ram": that becomes cart 1
+        val previous = File(systems, "RAM Cart 16 MB.ram")
+        if (slot == 1 && !file.exists() && previous.exists()) previous.renameTo(file)
+        return file
+    }
 
     var biosUS: String get() = sp.getString("biosUS", "")!!; set(v) = sp.edit().putString("biosUS", v).apply()
     var biosJP: String get() = sp.getString("biosJP", "")!!; set(v) = sp.edit().putString("biosJP", v).apply()
     var biosEU: String get() = sp.getString("biosEU", "")!!; set(v) = sp.edit().putString("biosEU", v).apply()
 
-    /** 4 (MicroNut99 RAM cart), 8 or 16 (16MB-PCB-CD32X, paged). */
-    var ramCartSize: Int get() = sp.getInt("ramCartSize", 16); set(v) = sp.edit().putInt("ramCartSize", v).apply()
+    /** Which 16 MB cart is in the slot: 1-9. */
+    var ramCartSlot: Int get() = sp.getInt("ramCartSlot", 1).coerceIn(1, 9); set(v) = sp.edit().putInt("ramCartSlot", v).apply()
     var ramCartWriteProtect: Boolean get() = sp.getBoolean("ramCartWP", false); set(v) = sp.edit().putBoolean("ramCartWP", v).apply()
     var recompiler: Boolean get() = sp.getBoolean("recompiler", true); set(v) = sp.edit().putBoolean("recompiler", v).apply()
     var region: String get() = sp.getString("region", "")!!; set(v) = sp.edit().putString("region", v).apply()

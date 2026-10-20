@@ -6,7 +6,7 @@ struct MegaCD32X : Emulator {
   auto save() -> bool override;
   auto pak(ares::Node::Object) -> std::shared_ptr<vfs::directory> override;
 
-  auto ramCartLocation(u32 sizeMiB) -> string;
+  auto ramCartLocation(u32 slot) -> string;
   auto saveRamCart() -> void;
 
   u32 regionID = 0;
@@ -15,16 +15,21 @@ struct MegaCD32X : Emulator {
   string ramCartFile;
 };
 
-//one file per cart size, like separate physical carts: shared by every CD32X disc.
-//Kept in ares' Systems folder (next to ares.exe on Windows, or Settings > Paths > Home).
-auto MegaCD32X::ramCartLocation(u32 sizeMiB) -> string {
+//16 MB carts 1-9, one file each, like separate physical carts: a cart is shared by every
+//CD32X disc that runs with it. Kept in ares' Systems folder (next to ares.exe on Windows,
+//or Settings > Paths > Home).
+auto MegaCD32X::ramCartLocation(u32 slot) -> string {
   #if defined(PLATFORM_WINDOWS)
   string directory = settings.paths.home ? settings.paths.home : string{Path::program(), "Systems/"};
   #else
   string directory = mia::homeLocation();
   #endif
   directory::create(directory);
-  return {directory, "RAM Cart ", sizeMiB, " MB.ram"};
+  string location{directory, "RAM Cart 16 MB-", slot, ".ram"};
+  //the first build kept one cart as "RAM Cart 16 MB.ram": that becomes cart 1
+  string previous{directory, "RAM Cart 16 MB.ram"};
+  if(slot == 1 && !file::exists(location) && file::exists(previous)) file::move(previous, location);
+  return location;
 }
 
 auto MegaCD32X::saveRamCart() -> void {
@@ -104,9 +109,10 @@ auto MegaCD32X::load() -> LoadResult {
   ramCart.reset();
   ramCartFile = {};
   if(settings.megadrive.ramCart) {
-    u32 sizeMiB = settings.megadrive.ramCartSize;
-    if(sizeMiB != 8 && sizeMiB != 16) sizeMiB = 4;
-    ramCartFile = ramCartLocation(sizeMiB);
+    u32 sizeMiB = 16;
+    u32 slot = settings.megadrive.ramCartSlot;
+    if(slot < 1 || slot > 9) slot = 1;
+    ramCartFile = ramCartLocation(slot);
     ramCart = std::make_shared<vfs::directory>();
     ramCart->setAttribute("title", "RAM Cart");
     ramCart->setAttribute("region", "NTSC-U, NTSC-J, PAL");

@@ -60,7 +60,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
       run: |
-        notes="ares v148 + Sega CD 32X RAM cart (4/8/16 MB). Built from ${GITHUB_SHA::7}."
+        notes="ares v148 + Sega CD 32X RAM carts (16 MB, carts 1-9). Built from ${GITHUB_SHA::7}."
         if gh release view cd32x-latest >/dev/null 2>&1; then
           gh release edit cd32x-latest --notes "$notes" --target "$GITHUB_SHA"
         else

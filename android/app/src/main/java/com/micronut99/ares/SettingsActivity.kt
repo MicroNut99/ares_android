@@ -37,17 +37,18 @@ class SettingsActivity : Activity() {
             { prefs.region }, { prefs.region = it })
 
         section("RAM cart (Sega CD 32X)")
-        note("Battery-backed SRAM in the cartridge slot, as MicroNut99's RAM cart. 8 / 16 MB = the paged " +
-            "16MB-PCB-CD32X (page registers 0xA130F0 / 0xA130F2). One file per size in ${prefs.systems.absolutePath}, " +
-            "the same file format as Windows ares.")
-        choiceRow("Size", listOf(4 to "4 MB", 8 to "8 MB (paged)", 16 to "16 MB (paged)"), { prefs.ramCartSize }, { prefs.ramCartSize = it })
+        note("16 MB battery-backed SRAM cart in the cartridge slot (the paged 16MB-PCB-CD32X: page registers " +
+            "0xA130F0 / 0xA130F2). Carts 1-9 are separate files, \"RAM Cart 16 MB-<n>.ram\" in " +
+            "${prefs.systems.absolutePath}, the same files as Windows ares.")
+        choiceRow("Cart in the slot", (1..9).map { n -> n to "Cart $n" + if (prefs.ramCartFile(n).exists()) "  ●" else "  (blank)" },
+            { prefs.ramCartSlot }, { prefs.ramCartSlot = it })
         check("Write-protect", { prefs.ramCartWriteProtect }, { prefs.ramCartWriteProtect = it })
         action("Wipe a RAM cart…") {
-            val sizes = listOf(4, 8, 16).filter { prefs.ramCartFile(it).exists() }
-            if (sizes.isEmpty()) { toast("No RAM cart file yet"); return@action }
+            val slots = (1..9).filter { prefs.ramCartFile(it).exists() }
+            if (slots.isEmpty()) { toast("No RAM cart file yet"); return@action }
             AlertDialog.Builder(this).setTitle("Wipe which cart?")
-                .setItems(sizes.map { "$it MB  (${prefs.ramCartFile(it).name})" }.toTypedArray()) { _, which ->
-                    val f = prefs.ramCartFile(sizes[which])
+                .setItems(slots.map { "Cart $it  (${prefs.ramCartFile(it).name})" }.toTypedArray()) { _, which ->
+                    val f = prefs.ramCartFile(slots[which])
                     AlertDialog.Builder(this).setTitle("Wipe ${f.name}?")
                         .setMessage("Everything the games copied into it (and the save area at 0x3F0000) is lost.")
                         .setPositiveButton("Wipe") { _, _ -> f.delete(); toast("Wiped") }

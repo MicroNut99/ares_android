@@ -136,7 +136,7 @@ auto Settings::process(bool load) -> void {
 
   bind(boolean, "MegaDrive/TMSS", megadrive.tmss);
   bind(boolean, "MegaDrive/RAMCart", megadrive.ramCart);
-  bind(natural, "MegaDrive/RAMCartSize", megadrive.ramCartSize);
+  bind(natural, "MegaDrive/RAMCartSlot", megadrive.ramCartSlot);
   bind(boolean, "MegaDrive/RAMCartWriteProtect", megadrive.ramCartWriteProtect);
 
   for(u32 index : range(9)) {

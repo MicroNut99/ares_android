@@ -49,7 +49,7 @@ jobs:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
       run: |
-        notes="ares v148 for Android (arm64, Android 8+): Genesis, Sega CD, 32X, Sega CD 32X with the RAM cart (4/8/16 MB). Built from ${GITHUB_SHA::7}."
+        notes="ares v148 for Android (arm64, Android 8+): Genesis, Sega CD, 32X, Sega CD 32X with RAM carts (16 MB, carts 1-9). Built from ${GITHUB_SHA::7}."
         if gh release view android-latest >/dev/null 2>&1; then
           gh release edit android-latest --notes "$notes"
         else
