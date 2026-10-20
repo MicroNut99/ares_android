@@ -40,6 +40,16 @@ jobs:
       shell: pwsh
       run: |
         Copy-Item README-CD32X.md build/desktop-ui/rundir/
+        # Systems\ ships next to ares.exe, so ares uses it from the first launch (RAM carts,
+        # RAM Cart Games.txt, Sega CD backup RAM). Zips drop empty folders: give it a file.
+        New-Item -ItemType Directory -Force build/desktop-ui/rundir/Systems | Out-Null
+        Set-Content -Path build/desktop-ui/rundir/Systems/README.txt -Value @(
+          "ares keeps its system files here:",
+          "  RAM Cart 16 MB-1.ram ... RAM Cart 16 MB-9.ram   the nine 16 MB RAM carts",
+          "  RAM Cart Games.txt                              which cart each disc last used",
+          "  Mega CD 32X.sys, Mega CD.sys, ...               Sega CD backup RAM and other system data",
+          "Keep this folder next to ares.exe."
+        )
         Compress-Archive -Path build/desktop-ui/rundir/* -DestinationPath ares-cd32x-windows-x64.zip
     - name: Upload Build
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
