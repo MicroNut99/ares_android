@@ -96,7 +96,10 @@ class EmulationActivity : Activity() {
         status.text = "Loading ${File(game).name}…"
         prefs.systems.mkdirs()
         val home = prefs.systems.absolutePath + "/"
-        val cartSlot = prefs.ramCartSlot
+        //the cart this game last ran with; a new game takes the cart selected in Settings
+        val cartSlot = prefs.cartFor(game).takeIf { it != 0 } ?: prefs.ramCartSlot
+        prefs.ramCartSlot = cartSlot
+        prefs.setCartFor(game, cartSlot)
         thread(name = "ares-load") {
             val error = NativeBridge.nativeLoad(
                 home, game, disc, machine, prefs.region,
@@ -298,6 +301,7 @@ class EmulationActivity : Activity() {
                                     (if (prefs.ramCartFile(n).exists()) "" else "  blank")
                             }.toTypedArray()) { _, i ->
                                 prefs.ramCartSlot = i + 1
+                                prefs.setCartFor(game, i + 1)
                                 menuOpen = false
                                 startIntent?.let { startGame(it) }
                             }

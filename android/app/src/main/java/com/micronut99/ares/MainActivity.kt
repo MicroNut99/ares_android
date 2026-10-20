@@ -125,7 +125,7 @@ class MainActivity : Activity() {
         val machine = machineFor(game)
         val disc = prefs.discFor(game.absolutePath)
         val tag = when (machine) {
-            NativeBridge.MEGA_CD_32X -> "CD32X + RAM cart ${prefs.ramCartSlot}"
+            NativeBridge.MEGA_CD_32X -> "CD32X + RAM cart ${prefs.cartFor(game.absolutePath).takeIf { it != 0 } ?: prefs.ramCartSlot}"
             NativeBridge.MEGA_CD -> "Sega CD"
             NativeBridge.MEGA_32X -> if (disc.isNotBlank()) "32X + CD" else "32X"
             else -> if (disc.isNotBlank()) "Genesis + CD" else "Genesis"

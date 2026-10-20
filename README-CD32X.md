@@ -26,6 +26,12 @@ as a physical cart is. Delete a file to "wipe" that cart. (A `RAM Cart 16 MB.ram
 first build becomes cart 1.) Games that know only the 4 MB cart see its layout: after reset
 the 16 MB board shows pages 0 and 1, which is the 4 MB cart.
 
+Each disc remembers the cart it last ran with (by the `.cue`'s full path, in
+`Systems\RAM Cart Games.txt`): loading it again, from Recent, drag and drop or Load, inserts
+that cart. A disc loaded for the first time takes the cart selected in Settings. During play,
+**System → RAM Cart** swaps carts (the game restarts, as on the console) and the disc then
+remembers the new one.
+
 ## Use (Android)
 
 1. Install `ares-cd32x-android-arm64.apk` from the **`android-latest`** release
@@ -34,7 +40,7 @@ the 16 MB board shows pages 0 and 1, which is the 4 MB cart.
    your game folders directly. Its own files go in `/sdcard/ares/`.
 3. **Settings → Sega CD BIOS**: pick your BIOS files. **RAM cart**: which 16 MB cart (1-9) is in
    the slot. During play, *Insert RAM cart…* in the menu swaps carts (the game restarts, as on
-   the console).
+   the console); each game remembers the cart it last ran with.
 4. Browse to a `.cue` and tap it. Discs boot as **Sega CD 32X + RAM cart**; long-press a game to
    boot it as plain Sega CD instead, or to add a Sega CD disc to a 32X / Genesis cartridge.
 

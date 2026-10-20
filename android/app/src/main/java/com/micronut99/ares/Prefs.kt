@@ -48,6 +48,9 @@ class Prefs(context: Context) {
     /** Per game: which machine to boot, and a Sega CD disc to go with a cartridge. */
     fun machineFor(game: String): Int = sp.getInt("machine:$game", NativeBridge.AUTO)
     fun setMachineFor(game: String, machine: Int) = sp.edit().putInt("machine:$game", machine).apply()
+    /** The RAM cart (1-9) this game last ran with; 0 = none yet (it takes ramCartSlot). */
+    fun cartFor(game: String): Int = sp.getInt("cart:$game", 0).let { if (it in 1..9) it else 0 }
+    fun setCartFor(game: String, slot: Int) = sp.edit().putInt("cart:$game", slot).apply()
     fun discFor(game: String): String = sp.getString("disc:$game", "")!!
     fun setDiscFor(game: String, disc: String) = sp.edit().putString("disc:$game", disc).apply()
 
