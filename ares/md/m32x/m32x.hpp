@@ -1,6 +1,18 @@
 //Mega 32X
 
 struct M32X {
+  //CD32X timing (MicroNut99 ares fork): bus costs the SH2s pay, calibrated against the console
+  //(OpenLara CD32X profiler).  Off by default.  ARES_32X_TIMING="on" (the SH-2 cycle model) or
+  //"cart=6,sdr=0,sdw=0,fbr=5,fbw=4,br=1,bt=2,bts=1,mul=1,lu=1,mac=1" (the model + bus costs)
+  struct Timing32X {
+    bool cpu = false;             //SH-2 execution cycles (component/processor/sh2/timing.hpp)
+    u32 cart = 6;                 //extra clocks per 16-bit cart access (manual: 6-15 waits)
+    u32 sdramRead = 0;            //extra clocks per uncached SDRAM read (not cache fills)
+    u32 sdramWrite = 0;           //extra clocks per SDRAM write (the cache is write-through)
+    u32 fbRead = 5, fbWrite = 4;  //frame buffer
+    auto load() -> void;
+  } timing32x;
+
   Node::Object node;
   Memory::Readable<n16> vectors;
   Memory::Writable<n16> sdram;

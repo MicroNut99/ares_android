@@ -1,3 +1,39 @@
+//CD32X profiler (ares-headless --profile): every SH2 clock charged to the instruction running.
+//Interpreter only (the recompiler charges whole blocks at once).
+namespace sh2prof {
+  bool on = false;
+  u32 pc[2];                                            //instruction running, per SH2
+  u64 sdram[2][0x20000];                                //0x06000000-0x0603FFFF, per halfword
+  u64* cart[2];                                         //0x02000000-0x023FFFFF, per halfword
+  u64 other[2], total[2];
+  inline auto add(u32 which, u32 clocks) -> void {
+    u32 a = pc[which] & 0x1fff'fffe;
+    total[which] += clocks;
+    if(a >= 0x0600'0000 && a < 0x0604'0000) sdram[which][(a - 0x0600'0000) >> 1] += clocks;
+    else if(a >= 0x0200'0000 && a < 0x0240'0000) cart[which][(a - 0x0200'0000) >> 1] += clocks;
+    else other[which] += clocks;
+  }
+}
+
+extern "C" void ares_sh2prof_enable(bool enable) {
+  for(u32 w : range(2)) if(!sh2prof::cart[w]) sh2prof::cart[w] = new u64[0x200000]();
+  sh2prof::on = enable;
+}
+
+extern "C" void ares_sh2prof_dump(const char* file) {
+  FILE* fp = fopen(file, "w");
+  if(!fp) return;
+  for(u32 w : range(2)) {
+    fprintf(fp, "# cpu %s total %llu other %llu\n", w ? "slave" : "master",
+      (unsigned long long)sh2prof::total[w], (unsigned long long)sh2prof::other[w]);
+    for(u32 i : range(0x20000)) if(sh2prof::sdram[w][i])
+      fprintf(fp, "%u %08x %llu\n", w, 0x0600'0000 + i * 2, (unsigned long long)sh2prof::sdram[w][i]);
+    if(sh2prof::cart[w]) for(u32 i : range(0x200000)) if(sh2prof::cart[w][i])
+      fprintf(fp, "%u %08x %llu\n", w, 0x0200'0000 + i * 2, (unsigned long long)sh2prof::cart[w][i]);
+  }
+  fclose(fp);
+}
+
 auto M32X::SH7604::load(Node::Object parent, string name, string bootFile) -> void {
   node = parent->append<Node::Object>(name);
   if(auto fp = system.pak->read(bootFile)) {
@@ -38,6 +74,7 @@ auto M32X::SH7604::main() -> void {
     #undef raise
   }
 
+  if(sh2prof::on) sh2prof::pc[this == &m32x.shs] = regs.PC - 4;
   SH2::instruction();
   SH2::intc.run();
   SH2::dmac.run();
@@ -59,6 +96,7 @@ auto M32X::SH7604::internalStep(u32 clocks) -> void {
 }
 
 auto M32X::SH7604::step(u32 clocks) -> void {
+  if(sh2prof::on && m32x.io.adapterReset) sh2prof::add(this == &m32x.shs, clocks);
   SH2::frt.run(clocks);
   SH2::wdt.run(clocks);
   Thread::step(clocks);

@@ -24,6 +24,11 @@ auto SH2::instruction() -> void {
     ID = 0;
     u16 opcode = readWord(PC - 4);
     instructionPrologue(opcode);
+    if(timing.enabled) {                              //CD32X timing (timing.hpp)
+      u32 extra = timing.extra[opcode] + timing.pair(lastOpcode, opcode);
+      lastOpcode = opcode;
+      if(extra) step(extra);
+    }
     execute(opcode);
     instructionEpilogue();
   } else {

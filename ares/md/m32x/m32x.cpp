@@ -42,7 +42,39 @@ auto M32X::unload() -> void {
 auto M32X::save() -> void {
 }
 
+auto M32X::Timing32X::load() -> void {
+  //defaults first, then ARES_32X_TIMING (comma list of name=value, or "off")
+  *this = {};
+  auto& t = SH2::timing;
+  t = {};
+  t.enabled = false;            //off by default until it is calibrated against the console
+  cpu = false;
+  if(auto env = getenv("ARES_32X_TIMING"); env && *env) {
+    string list = env;
+    if(list != "off") { cpu = true; t.enabled = true; }   //"on" or any knob list turns it on
+    for(auto& item : nall::split(list, ",")) {
+      auto kv = nall::split(item, "=");
+      if(kv.size() != 2) continue;
+      u32 v = kv[1].natural();
+      if(kv[0] == "cpu") { cpu = v; t.enabled = v; }
+      if(kv[0] == "cart") cart = v;
+      if(kv[0] == "sdr") sdramRead = v;
+      if(kv[0] == "sdw") sdramWrite = v;
+      if(kv[0] == "fbr") fbRead = v;
+      if(kv[0] == "fbw") fbWrite = v;
+      if(kv[0] == "br") t.branch = v;
+      if(kv[0] == "bt") t.condTaken = v;
+      if(kv[0] == "bts") t.condTakenS = v;
+      if(kv[0] == "mul") t.mul = v;
+      if(kv[0] == "lu") t.loadUse = v;
+      if(kv[0] == "mac") t.macRead = v;
+    }
+  }
+  t.build();
+}
+
 auto M32X::power(bool reset) -> void {
+  timing32x.load();
   if constexpr(SH2::Accuracy::Recompiler) {
     if(!reset) ares::Memory::FixedAllocator::get().release();
   }

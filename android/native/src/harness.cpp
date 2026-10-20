@@ -5,6 +5,9 @@
 //                [--ramcart cart.bin] [--ramcart-size 4|8|16] [--frames 3600]
 //                [--press frame:buttons ...] [--screenshot frame:file.ppm ...]
 //                [--wav out.wav] [--home dir] [--interpreter]
+//                [--save-state frame:file ...] [--load-state file]
+//                [--profile out.txt --profile-from F --profile-to F]   (SH2 cycles per instruction;
+//                 use with --interpreter)
 //
 //Prints the 32X COMM registers once a second (the CD32X boot stacks post their status
 //in COMM12: 4B10 = game running) and how much audio came out.
@@ -20,6 +23,9 @@
 #include <vector>
 
 using namespace aresdroid;
+
+extern "C" void ares_sh2prof_enable(bool enable);
+extern "C" void ares_sh2prof_dump(const char* file);
 
 static uint32_t parseButtons(const std::string& text) {
   uint32_t mask = 0;
@@ -81,7 +87,10 @@ int main(int argc, char** argv) {
   uint32_t frames = 600;
   std::map<uint32_t, uint32_t> presses;      //frame -> buttons from that frame on
   std::map<uint32_t, std::string> shots;     //frame -> file
-  std::string wavFile;
+  std::map<uint32_t, std::string> saves;     //frame -> state file
+  std::string loadFile;
+  std::string wavFile, profFile;
+  uint32_t profFrom = 0, profTo = 0;
   paths.home = "./ares-home/";
 
   for(int i = 1; i < argc; i++) {
@@ -99,6 +108,9 @@ int main(int argc, char** argv) {
     else if(a == "--frames") frames = (uint32_t)atoi(next().c_str());
     else if(a == "--interpreter") request.recompiler = false;
     else if(a == "--wav") wavFile = next();
+    else if(a == "--profile") profFile = next();
+    else if(a == "--profile-from") profFrom = (uint32_t)atoi(next().c_str());
+    else if(a == "--profile-to") profTo = (uint32_t)atoi(next().c_str());
     else if(a == "--machine") {
       auto m = next();
       if(m == "cd32x") request.machine = Machine::MegaCD32X;
@@ -108,6 +120,11 @@ int main(int argc, char** argv) {
     } else if(a == "--press") {
       auto v = next(); auto c = v.find(':');
       presses[(uint32_t)atoi(v.substr(0, c).c_str())] = parseButtons(v.substr(c + 1));
+    } else if(a == "--save-state") {
+      auto v = next(); auto c = v.find(':');
+      saves[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
+    } else if(a == "--load-state") {
+      loadFile = next();
     } else if(a == "--screenshot") {
       auto v = next(); auto c = v.find(':');
       shots[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
@@ -126,6 +143,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   printf("booted: %s\n", session.description().c_str());
+  if(!loadFile.empty()) printf("load state %s: %s\n", loadFile.c_str(), session.loadState(loadFile) ? "ok" : "FAILED");
 
   Wav wav;
   if(!wavFile.empty()) wav.open(wavFile);
@@ -139,6 +157,8 @@ int main(int argc, char** argv) {
   for(uint32_t f = 0; f < frames; f++) {
     if(auto it = presses.find(f); it != presses.end()) buttons = it->second;
     session.setButtons(0, buttons);
+    if(!profFile.empty() && f == profFrom) { ares_sh2prof_enable(true); printf("frame %u: profiling on\n", f); }
+    if(!profFile.empty() && f == profTo) { ares_sh2prof_enable(false); ares_sh2prof_dump(profFile.c_str()); printf("frame %u: profile -> %s\n", f, profFile.c_str()); }
     session.runFrame();
 
     uint32_t got = session.readAudio(audio.data(), session.bufferedAudioFrames());
@@ -147,6 +167,8 @@ int main(int argc, char** argv) {
     wav.write(audio.data(), got);
 
     if(session.copyFrame(frame, serial)) serial = frame.serial;
+    if(auto it = saves.find(f); it != saves.end())
+      printf("frame %u: save state %s: %s\n", f, it->second.c_str(), session.saveState(it->second) ? "ok" : "FAILED");
     if(auto it = shots.find(f); it != shots.end()) {
       writePPM(it->second, frame);
       printf("frame %u: screenshot %s (%ux%u, aspect %.3f)\n", f, it->second.c_str(), frame.width, frame.height, frame.aspect);

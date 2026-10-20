@@ -127,6 +127,7 @@ auto SH2::Recompiler::emit(u32 address) -> Block* {
   u32 index = address >> 1 & 0x7f;
   bool hasBranched = 0;
   inDelaySlot = 1;  //force runtime check on first instruction
+  u16 prevOpcode = 0;               //CD32X timing: load-use pairs inside the block
   while(true) {
     u16 instruction = instructions[index++];
     if(callInstructionPrologue) {
@@ -135,7 +136,8 @@ auto SH2::Recompiler::emit(u32 address) -> Block* {
     }
     auto branch = emitInstruction(instruction);
     inDelaySlot = branch == Branch::Slot;
-    add64(CCR, CCR, imm(1));
+    add64(CCR, CCR, imm(1 + self.timing.extra[instruction] + self.timing.pair(prevOpcode, instruction)));
+    prevOpcode = instruction;
   //add64(CCR, CCR, imm(2));  //underclocking hack
     call(&SH2::instructionEpilogue);
     address += 2;
@@ -811,6 +813,7 @@ auto SH2::Recompiler::emitInstruction(u16 opcode) -> u32 {
       auto skip = cmp32_jump(T, imm(0), flag_eq);
       add32(PPC, PC, imm(4 + (s8)d8 * 2));
       mov32(PPM, imm(Branch::Take));
+      if(self.timing.enabled) add32(CCR, CCR, imm(self.timing.condTaken));
       setLabel(skip);
     });
     return Branch::Take;
@@ -822,6 +825,7 @@ auto SH2::Recompiler::emitInstruction(u16 opcode) -> u32 {
       auto skip = cmp32_jump(T, imm(0), flag_ne);
       add32(PPC, PC, imm(4 + (s8)d8 * 2));
       mov32(PPM, imm(Branch::Take));
+      if(self.timing.enabled) add32(CCR, CCR, imm(self.timing.condTaken));
       setLabel(skip);
     });
     return Branch::Take;
@@ -833,6 +837,7 @@ auto SH2::Recompiler::emitInstruction(u16 opcode) -> u32 {
       auto skip = cmp32_jump(T, imm(0), flag_eq);
       add32(PPC, PC, imm(4 + (s8)d8 * 2));
       mov32(PPM, imm(Branch::Slot));
+      if(self.timing.enabled) add32(CCR, CCR, imm(self.timing.condTakenS));
       setLabel(skip);
     });
     return Branch::Slot;
@@ -844,6 +849,7 @@ auto SH2::Recompiler::emitInstruction(u16 opcode) -> u32 {
       auto skip = cmp32_jump(T, imm(0), flag_ne);
       add32(PPC, PC, imm(4 + (s8)d8 * 2));
       mov32(PPM, imm(Branch::Slot));
+      if(self.timing.enabled) add32(CCR, CCR, imm(self.timing.condTakenS));
       setLabel(skip);
     });
     return Branch::Slot;

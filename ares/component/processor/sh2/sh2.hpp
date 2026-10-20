@@ -6,7 +6,12 @@
 
 namespace ares {
 
+#include "timing.hpp"
+
 struct SH2 {
+  inline static SH2Timing timing;
+  u16 lastOpcode = 0;           //for Timing::pair (interpreter)
+  bool cacheFill = false;       //a cache line fill is reading the bus (its time is charged once)
   virtual auto instructionPrologue(u16 instruction) -> void = 0;
   virtual auto step(u32 clocks) -> void = 0;
   virtual auto busReadByte(u32 address) -> u32 = 0;

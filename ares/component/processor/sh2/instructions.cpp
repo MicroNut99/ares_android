@@ -46,6 +46,7 @@ auto SH2::BF(u32 d) -> void {
   if(inDelaySlot()) return illegalSlotInstruction();
   if(SR.T == 0) {
     branch(PC + 4 + (s8)d * 2);
+    if(timing.enabled) step(timing.condTaken);
   }
 }
 
@@ -54,6 +55,7 @@ auto SH2::BFS(u32 d) -> void {
   if(inDelaySlot()) return illegalSlotInstruction();
   if(SR.T == 0) {
     delaySlot(PC + 4 + (s8)d * 2);
+    if(timing.enabled) step(timing.condTakenS);
   }
 }
 
@@ -88,6 +90,7 @@ auto SH2::BT(u32 d) -> void {
   if(inDelaySlot()) return illegalSlotInstruction();
   if(SR.T == 1) {
     branch(PC + 4 + (s8)d * 2);
+    if(timing.enabled) step(timing.condTaken);
   }
 }
 
@@ -96,6 +99,7 @@ auto SH2::BTS(u32 d) -> void {
   if(inDelaySlot()) return illegalSlotInstruction();
   if(SR.T == 1) {
     delaySlot(PC + 4 + (s8)d * 2);
+    if(timing.enabled) step(timing.condTakenS);
   }
 }
 
