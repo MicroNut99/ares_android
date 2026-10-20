@@ -264,6 +264,7 @@ struct EmulatorSettings : VerticalLayout {
 
 struct OptionSettings : VerticalLayout {
   auto construct() -> void;
+  auto refreshRamCart() -> void;
   Label commonSettingsLabel{this, Size{~0, 0}, 5};
     HorizontalLayout rewindLayout{this, Size{~0, 0}, 5};
       CheckLabel rewind{&rewindLayout, Size{0, 0}, 5};

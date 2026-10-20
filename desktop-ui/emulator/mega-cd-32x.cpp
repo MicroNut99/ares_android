@@ -8,6 +8,8 @@ struct MegaCD32X : Emulator {
 
   auto ramCartLocation(u32 slot) -> string;
   auto saveRamCart() -> void;
+  auto makeRamCart(u32 slot) -> void;
+  auto insertRamCart(u32 slot) -> void;
 
   u32 regionID = 0;
   sTimer discTrayTimer;
@@ -30,6 +32,41 @@ auto MegaCD32X::ramCartLocation(u32 slot) -> string {
   string previous{directory, "RAM Cart 16 MB.ram"};
   if(slot == 1 && !file::exists(location) && file::exists(previous)) file::move(previous, location);
   return location;
+}
+
+//the 16 MB cart `slot` (1-9), from its file; a new cart is blank (0xff)
+auto MegaCD32X::makeRamCart(u32 slot) -> void {
+  if(slot < 1 || slot > 9) slot = 1;
+  const u32 size = 16_MiB;
+  ramCartFile = ramCartLocation(slot);
+  ramCart = std::make_shared<vfs::directory>();
+  ramCart->setAttribute("title", "RAM Cart");
+  ramCart->setAttribute("region", "NTSC-U, NTSC-J, PAL");
+  ramCart->setAttribute("bootable", false);  //no CART_IN: the disc boots
+  ramCart->setAttribute("mega32x", true);
+  ramCart->setAttribute("ramcart", true);
+  ramCart->setAttribute("size", size);
+  ramCart->setAttribute("writeProtect", settings.megadrive.ramCartWriteProtect);
+  std::vector<u8> memory(size, 0xff);
+  auto existing = file::read(ramCartFile);
+  if(!existing.empty()) memcpy(memory.data(), existing.data(), min(existing.size(), memory.size()));
+  ramCart->append("ram.cart", memory);
+}
+
+//as on the console: power off, swap the cart, power on. The cart taken out is written to its file.
+auto MegaCD32X::insertRamCart(u32 slot) -> void {
+  Program::Guard guard;
+  save();
+  settings.megadrive.ramCart = true;
+  settings.megadrive.ramCartSlot = slot;
+  auto port = root->find<ares::Node::Port>("Cartridge Slot");
+  if(!port) return;
+  port->disconnect();
+  makeRamCart(slot);
+  port->allocate();
+  port->connect();
+  root->power();
+  settingsWindow.optionSettings.refreshRamCart();
 }
 
 auto MegaCD32X::saveRamCart() -> void {
@@ -108,24 +145,7 @@ auto MegaCD32X::load() -> LoadResult {
 
   ramCart.reset();
   ramCartFile = {};
-  if(settings.megadrive.ramCart) {
-    u32 sizeMiB = 16;
-    u32 slot = settings.megadrive.ramCartSlot;
-    if(slot < 1 || slot > 9) slot = 1;
-    ramCartFile = ramCartLocation(slot);
-    ramCart = std::make_shared<vfs::directory>();
-    ramCart->setAttribute("title", "RAM Cart");
-    ramCart->setAttribute("region", "NTSC-U, NTSC-J, PAL");
-    ramCart->setAttribute("bootable", false);  //no CART_IN: the disc boots
-    ramCart->setAttribute("mega32x", true);
-    ramCart->setAttribute("ramcart", true);
-    ramCart->setAttribute("size", sizeMiB << 20);
-    ramCart->setAttribute("writeProtect", settings.megadrive.ramCartWriteProtect);
-    std::vector<u8> memory(sizeMiB << 20, 0xff);
-    auto existing = file::read(ramCartFile);
-    if(!existing.empty()) memcpy(memory.data(), existing.data(), min(existing.size(), memory.size()));
-    ramCart->append("ram.cart", memory);
-  }
+  if(settings.megadrive.ramCart) makeRamCart(settings.megadrive.ramCartSlot);
 
   if(!ares::MegaDrive::load(root, {"[Sega] Mega CD 32X (", region, ")"})) return otherError;
 
@@ -163,6 +183,22 @@ auto MegaCD32X::load() -> LoadResult {
 
 
 auto MegaCD32X::load(Menu menu) -> void {
+  Menu cartMenu{&menu};
+  cartMenu.setIcon(Icon::Device::Storage);
+  cartMenu.setText("RAM Cart");
+  Group cartGroup;
+  for(u32 slot : range(1, 10)) {
+    MenuRadioItem item{&cartMenu};
+    item.setText({"16 MB cart ", slot, file::exists(ramCartLocation(slot)) ? "" : " (blank)"});
+    cartGroup.append(item);
+    if(ramCart && slot == settings.megadrive.ramCartSlot) item.setChecked();
+    item.onActivate([this, slot] {
+      if(ramCart && slot == settings.megadrive.ramCartSlot) return;
+      insertRamCart(slot);
+      presentation.refreshSystemMenu();
+    });
+  }
+
   MenuItem changeDisc{&menu};
   changeDisc.setIcon(Icon::Device::Optical);
   changeDisc.setText("Change Disc").onActivate([&] {

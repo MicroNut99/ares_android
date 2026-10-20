@@ -124,3 +124,11 @@ auto OptionSettings::construct() -> void {
     megaDriveRamCartHint.setText("16 MB paged SRAM cart (16MB-PCB-CD32X) for CD32X discs; carts 1-9 are separate files in Systems. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
 
 }
+
+//keep the RAM cart row in step when the system menu inserts another cart
+auto OptionSettings::refreshRamCart() -> void {
+  megaDriveRamCartOption.setChecked(settings.megadrive.ramCart);
+  for(auto item : megaDriveRamCartSlotOption.items()) {
+    if(item.attribute("slot").natural() == settings.megadrive.ramCartSlot) item.setSelected();
+  }
+}
