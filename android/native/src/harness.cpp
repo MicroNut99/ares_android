@@ -160,6 +160,17 @@ int main(int argc, char** argv) {
     if(!profFile.empty() && f == profFrom) { ares_sh2prof_enable(true); printf("frame %u: profiling on\n", f); }
     if(!profFile.empty() && f == profTo) { ares_sh2prof_enable(false); ares_sh2prof_dump(profFile.c_str()); printf("frame %u: profile -> %s\n", f, profFile.c_str()); }
     session.runFrame();
+    { static uint16_t last12 = 0xffff; static int profState = 0; uint16_t c12 = session.comm(6);
+      if(c12 != last12) {
+        if(getenv("ARES_WATCH_COMM12")) printf("frame %u: COMM12 %04X\n", f, c12);
+        //ARES_PROF_COMM12="4B10:BEEF": profile from the first value to the second (with --profile)
+        if(auto e = getenv("ARES_PROF_COMM12"); e && !profFile.empty()) {
+          uint32_t a = strtoul(e, nullptr, 16), b = strtoul(strchr(e, ':') ? strchr(e, ':') + 1 : e, nullptr, 16);
+          if(profState == 0 && c12 == a) { ares_sh2prof_enable(true); profState = 1; printf("frame %u: profiling on\n", f); }
+          else if(profState == 1 && c12 == b) { ares_sh2prof_enable(false); ares_sh2prof_dump(profFile.c_str()); profState = 2; printf("frame %u: profile -> %s\n", f, profFile.c_str()); }
+        }
+        last12 = c12;
+      } }
 
     uint32_t got = session.readAudio(audio.data(), session.bufferedAudioFrames());
     for(uint32_t k = 0; k < got * 2; k++) audioEnergy += audio[k] * audio[k];

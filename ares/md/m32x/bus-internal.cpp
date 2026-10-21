@@ -1,3 +1,7 @@
+namespace sh2prof { extern bool on; extern u64 cartFill[2], cartSingle[2]; }
+static inline auto sh2prof_on() -> bool { return sh2prof::on; }
+static inline auto sh2prof_cartFill(u32 w) -> void { sh2prof::cartFill[w]++; }
+static inline auto sh2prof_cartSingle(u32 w) -> void { sh2prof::cartSingle[w]++; }
 auto M32X::readInternal(n1 upper, n1 lower, n32 address, n16 data) -> n16 {
   if(address >= 0x0000'0000 && address <= 0x0000'3fff) {
     if(shm.active()) shm.internalStep(1); if(shs.active()) shs.internalStep(1);
@@ -16,6 +20,12 @@ auto M32X::readInternal(n1 upper, n1 lower, n32 address, n16 data) -> n16 {
       if(shs.active()) { shs.internalStep(1); shs.syncM68k(true); }
     }
 
+    if(sh2prof_on()) {
+      if(shm.active()) (shm.cacheFill ? sh2prof_cartFill(0) : sh2prof_cartSingle(0));
+      if(shs.active()) (shs.cacheFill ? sh2prof_cartFill(1) : sh2prof_cartSingle(1));
+      if(getenv("ARES_PROF_SAMPLE") && shs.active() && !shs.cacheFill && (sh2prof::cartSingle[1] % 50000) == 1)
+        printf("slave single cart read %08x pc %08x r13 %08x\n", (u32)address, (u32)shs.regs.PC - 4, (u32)shs.regs.R[13]);
+    }
     //TODO: SH2 ROM accesses need to stall while the m68k is on the bus
     if(shm.active()) shm.internalStep(timing32x.cart); if(shs.active()) shs.internalStep(timing32x.cart);
     return cartridge.child->read(upper, lower, address, data);

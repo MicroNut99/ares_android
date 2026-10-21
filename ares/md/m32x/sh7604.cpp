@@ -6,6 +6,9 @@ namespace sh2prof {
   u64 sdram[2][0x20000];                                //0x06000000-0x0603FFFF, per halfword
   u64* cart[2];                                         //0x02000000-0x023FFFFF, per halfword
   u64 other[2], total[2];
+  u64 cartFill[2], cartSingle[2];
+  u32 probePC = 0, probeLast[2];                        //ARES_PROBE_PC: how often a load repeats its address
+  u64 probeHits[2], probeSame[2];                       //cart word reads: in a cache line fill / single
   inline auto add(u32 which, u32 clocks) -> void {
     u32 a = pc[which] & 0x1fff'fffe;
     total[which] += clocks;
@@ -17,12 +20,22 @@ namespace sh2prof {
 
 extern "C" void ares_sh2prof_enable(bool enable) {
   for(u32 w : range(2)) if(!sh2prof::cart[w]) sh2prof::cart[w] = new u64[0x200000]();
+  if(auto e = getenv("ARES_PROBE_PC")) sh2prof::probePC = strtoul(e, nullptr, 16);
   sh2prof::on = enable;
 }
 
 extern "C" void ares_sh2prof_dump(const char* file) {
   FILE* fp = fopen(file, "w");
   if(!fp) return;
+  fprintf(fp, "# probe %08x: master %llu same %llu | slave %llu same %llu\n", sh2prof::probePC,
+    (unsigned long long)sh2prof::probeHits[0], (unsigned long long)sh2prof::probeSame[0],
+    (unsigned long long)sh2prof::probeHits[1], (unsigned long long)sh2prof::probeSame[1]);
+  fprintf(fp, "# cart reads: master fill %llu single %llu | slave fill %llu single %llu\n",
+    (unsigned long long)sh2prof::cartFill[0], (unsigned long long)sh2prof::cartSingle[0],
+    (unsigned long long)sh2prof::cartFill[1], (unsigned long long)sh2prof::cartSingle[1]);
+  fprintf(fp, "# cache master enable %d disableCode %d disableData %d twoWay %d | slave enable %d disableCode %d disableData %d twoWay %d\n",
+    (int)m32x.shm.cache.enable, (int)m32x.shm.cache.disableCode, (int)m32x.shm.cache.disableData, (int)m32x.shm.cache.twoWay,
+    (int)m32x.shs.cache.enable, (int)m32x.shs.cache.disableCode, (int)m32x.shs.cache.disableData, (int)m32x.shs.cache.twoWay);
   for(u32 w : range(2)) {
     fprintf(fp, "# cpu %s total %llu other %llu\n", w ? "slave" : "master",
       (unsigned long long)sh2prof::total[w], (unsigned long long)sh2prof::other[w]);
@@ -75,6 +88,12 @@ auto M32X::SH7604::main() -> void {
   }
 
   if(sh2prof::on) sh2prof::pc[this == &m32x.shs] = regs.PC - 4;
+  if(sh2prof::on && sh2prof::probePC && regs.PC - 4 == sh2prof::probePC) {
+    u32 w = this == &m32x.shs, addr = regs.R[0] + regs.R[13];
+    sh2prof::probeHits[w]++;
+    if(addr == sh2prof::probeLast[w]) sh2prof::probeSame[w]++;
+    sh2prof::probeLast[w] = addr;
+  }
   SH2::instruction();
   SH2::intc.run();
   SH2::dmac.run();
