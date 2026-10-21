@@ -1,5 +1,5 @@
 auto M32X::readInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> n16 {
-  if(shm.active()) shm.internalStep(1); if(shs.active()) shs.internalStep(1);
+  busCharge(timing.io);
 
   //interrupt mask
   if(address == 0x4000) {
@@ -171,7 +171,7 @@ auto M32X::readInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> n16 {
 }
 
 auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
-  if(shm.active()) shm.internalStep(1); if(shs.active()) shs.internalStep(1);
+  busCharge(timing.io);
 
   //interrupt mask
   if(address == 0x4000) {

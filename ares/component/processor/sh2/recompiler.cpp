@@ -82,6 +82,7 @@ auto SH2::Recompiler::block(u32 address) -> Block* {
     return result->block;
   }
 
+  emitSize = size ? size : 0x100;
   auto block = emit(address);
   assert(block->size == size);
   pool(address)->blocks[address >> 1 & 0x7f] = block;
@@ -127,6 +128,11 @@ auto SH2::Recompiler::emit(u32 address) -> Block* {
   u32 index = address >> 1 & 0x7f;
   bool hasBranched = 0;
   inDelaySlot = 1;  //force runtime check on first instruction
+  if(fetchModel) {
+    mov32(reg(1), imm(start));
+    mov32(reg(2), imm(emitSize));
+    call(&SH2::fetchTrampoline);
+  }
   while(true) {
     u16 instruction = instructions[index++];
     if(callInstructionPrologue) {

@@ -15,6 +15,7 @@ M32X m32x;
 
 auto M32X::load(Node::Object parent) -> void {
   node = parent->append<Node::Object>("Mega 32X");
+  loadTiming();
   sdram.allocate(256_KiB >> 1);
   shm.load(node, "SHM", "sh2.boot.mrom");
   shs.load(node, "SHS", "sh2.boot.srom");
