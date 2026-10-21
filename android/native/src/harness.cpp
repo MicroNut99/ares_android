@@ -90,6 +90,10 @@ int main(int argc, char** argv) {
   std::map<uint32_t, std::string> saves;     //frame -> state file
   std::string loadFile;
   bool stats = false;
+  std::vector<uint32_t> watch;   //--watch addr (hex): per vblank, the SDRAM longs and whether a picture was shown
+  bool swaps = false;            //--swaps: per second, one character a vblank: '|' a new 32X picture, '.' none
+  std::string swapLine;
+  uint64_t swapLast = 0;
   uint32_t profFrom = ~0u;
   std::string profFile;
   paths.home = "./ares-home/";
@@ -111,6 +115,8 @@ int main(int argc, char** argv) {
     else if(a == "--wav") wavFile = next();
     else if(a == "--load-state") loadFile = next();
     else if(a == "--stats") stats = true;
+    else if(a == "--swaps") swaps = true;
+    else if(a == "--watch") watch.push_back((uint32_t)strtoul(next().c_str(), nullptr, 16));
     else if(a == "--profile") {
       auto v = next(); auto c = v.find(':');
       profFrom = (uint32_t)atoi(v.substr(0, c).c_str()); profFile = v.substr(c + 1);
@@ -175,6 +181,23 @@ int main(int argc, char** argv) {
     wav.write(audio.data(), got);
 
     if(session.copyFrame(frame, serial)) serial = frame.serial;
+    if(!watch.empty()) {
+      uint64_t now[6];
+      session.timingStats(now);
+      static uint64_t wl;
+      printf("  w %u %c", f, now[5] != wl ? '|' : '.');
+      wl = now[5];
+      for(auto a : watch) printf(" %d", (int32_t)session.sdram32(a));
+      printf(" c0=%04X c8=%04X", session.comm(0), session.comm(4));
+      printf("\n");
+    }
+    if(swaps) {
+      uint64_t now[6];
+      session.timingStats(now);
+      swapLine += now[5] != swapLast ? '|' : '.';
+      swapLast = now[5];
+      if(swapLine.size() == 60) { printf("  swaps %s\n", swapLine.c_str()); swapLine.clear(); }
+    }
     if(auto it = saves.find(f); it != saves.end()) {
       printf("frame %u: state %s %s\n", f, it->second.c_str(), session.saveState(it->second) ? "saved" : "NOT SAVED");
     }

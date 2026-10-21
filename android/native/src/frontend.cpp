@@ -457,6 +457,12 @@ void Session::fillStats(uint64_t out[16]) const {
   for(int k = 0; k < 8; k++) out[k] = ares::MegaDrive::m32x.shm.fills[k], out[8 + k] = ares::MegaDrive::m32x.shs.fills[k];
 }
 
+uint32_t Session::sdram32(uint32_t address) const {
+  auto& m = ares::MegaDrive::m32x.sdram;
+  uint32_t i = (address & 0x3fffc) >> 1;
+  return (uint32_t)(uint16_t)m[i] << 16 | (uint16_t)m[i + 1];
+}
+
 void Session::profileStart() {
   ares::MegaDrive::m32x.shm.profile.clear();
   ares::MegaDrive::m32x.shs.profile.clear();
