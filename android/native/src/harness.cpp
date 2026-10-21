@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
       printf("  w %u %c", f, now[5] != wl ? '|' : '.');
       wl = now[5];
       for(auto a : watch) printf(" %d", (int32_t)session.sdram32(a));
-      printf(" c0=%04X c8=%04X", session.comm(0), session.comm(4));
+      printf(" c0=%04X c8=%04X c14=%04X", session.comm(0), session.comm(4), session.comm(7));
       printf("\n");
     }
     if(swaps) {

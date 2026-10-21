@@ -40,7 +40,7 @@ struct M32X {
     auto instructionPrologue(u16 instruction) -> void override;
     auto step(u32 clocks) -> void override;
     auto internalStep(u32 clocks) -> void;
-    auto power(bool reset) -> void;
+  auto power(bool reset) -> void;
     auto restart() -> void;
     auto syncAll(bool force = false) -> void;
     auto syncOtherSh2(bool force = false) -> void;
@@ -189,6 +189,7 @@ struct M32X {
   auto unload() -> void;
   auto save() -> void;
 
+  auto commLog(u32 index, char who) -> void;
   auto power(bool reset) -> void;
 
   auto vblank(bool) -> void;

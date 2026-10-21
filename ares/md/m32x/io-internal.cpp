@@ -243,6 +243,7 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
     if(shs.active()) { shs.syncAll(); }
     if(upper) communication[address >> 1 & 7].byte(1) = data.byte(1);
     if(lower) communication[address >> 1 & 7].byte(0) = data.byte(0);
+    commLog(address >> 1 & 7, 'S');
   }
 
   //PWM control
