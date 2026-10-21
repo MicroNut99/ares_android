@@ -6,13 +6,8 @@ struct MegaCD32X : Emulator {
   auto save() -> bool override;
   auto pak(ares::Node::Object) -> std::shared_ptr<vfs::directory> override;
 
-  auto ramCartDirectory() -> string;
-  auto ramCartLocation(u32 slot) -> string;
-  auto rememberedRamCart() -> u32;
-  auto rememberRamCart(u32 slot) -> void;
   auto saveRamCart() -> void;
   auto makeRamCart(u32 slot) -> void;
-  auto insertRamCart(u32 slot) -> void;
 
   u32 regionID = 0;
   sTimer discTrayTimer;
@@ -23,7 +18,7 @@ struct MegaCD32X : Emulator {
 //16 MB carts 1-9, one file each, like separate physical carts: a cart is shared by every
 //CD32X disc that runs with it. Kept in ares' Systems folder (next to ares.exe on Windows,
 //or Settings > Paths > Home).
-auto MegaCD32X::ramCartDirectory() -> string {
+auto ramCartDirectory() -> string {
   #if defined(PLATFORM_WINDOWS)
   string directory = settings.paths.home ? settings.paths.home : string{Path::program(), "Systems/"};
   #else
@@ -33,44 +28,13 @@ auto MegaCD32X::ramCartDirectory() -> string {
   return directory;
 }
 
-auto MegaCD32X::ramCartLocation(u32 slot) -> string {
+auto ramCartLocation(u32 slot) -> string {
   string directory = ramCartDirectory();
   string location{directory, "RAM Cart 16 MB-", slot, ".ram"};
   //the first build kept one cart as "RAM Cart 16 MB.ram": that becomes cart 1
   string previous{directory, "RAM Cart 16 MB.ram"};
   if(slot == 1 && !file::exists(location) && file::exists(previous)) file::move(previous, location);
   return location;
-}
-
-//Each disc remembers the cart it last ran with: "RAM Cart Games.txt" in Systems, one line
-//per game, "<cart>|<full path of the .cue>". Full paths, because many CD32X discs share a
-//file name (CDROMPlayer_mixed.cue). 0 = this game has no cart yet.
-auto MegaCD32X::rememberedRamCart() -> u32 {
-  if(!game || !game->location) return 0;
-  string listFile{ramCartDirectory(), "RAM Cart Games.txt"};
-  string text = string::read(listFile);
-  for(auto line : nall::split(text, "\n")) {
-    line.strip();
-    auto parts = nall::split(line, "|", 1L);
-    if(parts.size() != 2 || parts[1] != game->location) continue;
-    u32 slot = parts[0].natural();
-    if(slot >= 1 && slot <= 9) return slot;
-  }
-  return 0;
-}
-
-auto MegaCD32X::rememberRamCart(u32 slot) -> void {
-  if(!game || !game->location || slot < 1 || slot > 9) return;
-  string listFile{ramCartDirectory(), "RAM Cart Games.txt"};
-  string output{slot, "|", game->location, "\n"};  //most recent first
-  string text = string::read(listFile);
-  for(auto line : nall::split(text, "\n")) {
-    line.strip();
-    auto parts = nall::split(line, "|", 1L);
-    if(parts.size() != 2 || parts[1] == game->location) continue;
-    output.append(parts[0], "|", parts[1], "\n");
-  }
-  file::write(listFile, {(const u8*)output.data(), (size_t)output.size()});
 }
 
 //the 16 MB cart `slot` (1-9), from its file; a new cart is blank (0xff)
@@ -90,23 +54,6 @@ auto MegaCD32X::makeRamCart(u32 slot) -> void {
   auto existing = file::read(ramCartFile);
   if(!existing.empty()) memcpy(memory.data(), existing.data(), min(existing.size(), memory.size()));
   ramCart->append("ram.cart", memory);
-}
-
-//as on the console: power off, swap the cart, power on. The cart taken out is written to its file.
-auto MegaCD32X::insertRamCart(u32 slot) -> void {
-  Program::Guard guard;
-  save();
-  settings.megadrive.ramCart = true;
-  settings.megadrive.ramCartSlot = slot;
-  rememberRamCart(slot);
-  auto port = root->find<ares::Node::Port>("Cartridge Slot");
-  if(!port) return;
-  port->disconnect();
-  makeRamCart(slot);
-  port->allocate();
-  port->connect();
-  root->power();
-  settingsWindow.optionSettings.refreshRamCart();
 }
 
 auto MegaCD32X::saveRamCart() -> void {
@@ -185,13 +132,8 @@ auto MegaCD32X::load() -> LoadResult {
 
   ramCart.reset();
   ramCartFile = {};
-  if(settings.megadrive.ramCart) {
-    //the cart this disc last ran with; a new disc takes the cart selected in Settings
-    if(auto slot = rememberedRamCart()) settings.megadrive.ramCartSlot = slot;
-    rememberRamCart(settings.megadrive.ramCartSlot);
-    makeRamCart(settings.megadrive.ramCartSlot);
-    settingsWindow.optionSettings.refreshRamCart();
-  }
+  //the cart chosen in Settings > Options
+  if(settings.megadrive.ramCart) makeRamCart(settings.megadrive.ramCartSlot);
 
   if(!ares::MegaDrive::load(root, {"[Sega] Mega CD 32X (", region, ")"})) return otherError;
 
@@ -229,22 +171,6 @@ auto MegaCD32X::load() -> LoadResult {
 
 
 auto MegaCD32X::load(Menu menu) -> void {
-  Menu cartMenu{&menu};
-  cartMenu.setIcon(Icon::Device::Storage);
-  cartMenu.setText("RAM Cart");
-  Group cartGroup;
-  for(u32 slot : range(1, 10)) {
-    MenuRadioItem item{&cartMenu};
-    item.setText({"16 MB cart ", slot, file::exists(ramCartLocation(slot)) ? "" : " (blank)"});
-    cartGroup.append(item);
-    if(ramCart && slot == settings.megadrive.ramCartSlot) item.setChecked();
-    item.onActivate([this, slot] {
-      if(ramCart && slot == settings.megadrive.ramCartSlot) return;
-      insertRamCart(slot);
-      presentation.refreshSystemMenu();
-    });
-  }
-
   MenuItem changeDisc{&menu};
   changeDisc.setIcon(Icon::Device::Optical);
   changeDisc.setText("Change Disc").onActivate([&] {

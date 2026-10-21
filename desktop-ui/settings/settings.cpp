@@ -37,7 +37,23 @@ auto Settings::load() -> void {
     if(input.defocus == "Pause") input.defocus = "Block";
     input.keepRunningApplied = true;
   }
+  defaultFirmware();
   save();
+}
+
+//CD32X build: the Sega CD BIOS defaults to the "bios" folder next to ares.exe:
+//bios/bios_CD_U.bin (US), bios_CD_J.bin (Japan), bios_CD_E.bin (Europe). Used for any
+//region whose BIOS is unset or whose file is gone, as long as that file exists.
+auto Settings::defaultFirmware() -> void {
+  for(auto& emulator : emulators) {
+    if(emulator->name != "Mega CD") continue;
+    for(auto& firmware : emulator->firmware) {
+      if(firmware.location && file::exists(firmware.location)) continue;
+      string letter = firmware.region == "Japan" ? "J" : firmware.region == "Europe" ? "E" : "U";
+      string location{Path::program(), "bios/bios_CD_", letter, ".bin"};
+      if(file::exists(location)) firmware.location = location;
+    }
+  }
 }
 
 auto Settings::save() -> void {

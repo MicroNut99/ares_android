@@ -109,6 +109,7 @@ auto FirmwareSettings::eventScan() -> void {
       if(!file::exists(firmware.location)) firmware.location = findFirmware(firmware.sha256);
     }
   }
+  settings.defaultFirmware();
 
   refresh();
 }

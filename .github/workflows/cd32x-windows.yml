@@ -46,9 +46,18 @@ jobs:
         Set-Content -Path build/desktop-ui/rundir/Systems/README.txt -Value @(
           "ares keeps its system files here:",
           "  RAM Cart 16 MB-1.ram ... RAM Cart 16 MB-9.ram   the nine 16 MB RAM carts",
-          "  RAM Cart Games.txt                              which cart each disc last used",
           "  Mega CD 32X.sys, Mega CD.sys, ...               Sega CD backup RAM and other system data",
           "Keep this folder next to ares.exe."
+        )
+        # bios\: the default place for the Sega CD BIOS (not included: use your own dumps)
+        New-Item -ItemType Directory -Force build/desktop-ui/rundir/bios | Out-Null
+        Set-Content -Path build/desktop-ui/rundir/bios/README.txt -Value @(
+          "Put your Sega CD BIOS files here, with these names:",
+          "  bios_CD_U.bin   US (NTSC-U)",
+          "  bios_CD_J.bin   Japan (NTSC-J)",
+          "  bios_CD_E.bin   Europe (PAL)",
+          "ares picks them up at the next start (or Settings > Firmware > Scan).",
+          "The 32X boot ROMs are built into ares."
         )
         Compress-Archive -Path build/desktop-ui/rundir/* -DestinationPath ares-cd32x-windows-x64.zip
     - name: Upload Build

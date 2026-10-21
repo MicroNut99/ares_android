@@ -110,25 +110,51 @@ auto OptionSettings::construct() -> void {
   });
   for(u32 slot : range(1, 10)) {
     ComboButtonItem item{&megaDriveRamCartSlotOption};
-    item.setText({"16 MB cart ", slot});
     item.setAttribute("slot", string{slot});
-    if(slot == settings.megadrive.ramCartSlot) item.setSelected();
   }
+  refreshRamCart();
   megaDriveRamCartSlotOption.onChange([&] {
     settings.megadrive.ramCartSlot = megaDriveRamCartSlotOption.selected().attribute("slot").natural();
+  });
+  megaDriveRamCartCreate.setText("Create").onActivate([&] {
+    u32 slot = settings.megadrive.ramCartSlot;
+    if(slot < 1 || slot > 9) slot = 1;
+    if(emulator && emulator->name == "Mega CD 32X") {
+      MessageDialog().setTitle("RAM Cart").setText("Close the Mega CD 32X game first: it is using a RAM cart.")
+        .setAlignment(settingsWindow).information();
+      return;
+    }
+    string location = ramCartLocation(slot);
+    if(file::exists(location)) {
+      auto choice = MessageDialog().setTitle("RAM Cart").setText({
+        "16 MB cart ", slot, " already exists:\n", location, "\n\n",
+        "Replace it with a blank cart? Everything in it is lost."
+      }).setAlignment(settingsWindow).question({"Replace", "Cancel"});
+      if(choice != "Replace") return;
+    }
+    std::vector<u8> blank(16_MiB, 0xff);
+    if(!file::write(location, blank)) {
+      MessageDialog().setTitle("RAM Cart").setText({"Could not write ", location}).setAlignment(settingsWindow).error();
+      return;
+    }
+    refreshRamCart();
+    MessageDialog().setTitle("RAM Cart").setText({"Created a blank 16 MB cart ", slot, ":\n", location})
+      .setAlignment(settingsWindow).information();
   });
   megaDriveRamCartWriteProtectOption.setText("Write-protect").setChecked(settings.megadrive.ramCartWriteProtect).onToggle([&] {
     settings.megadrive.ramCartWriteProtect = megaDriveRamCartWriteProtectOption.checked();
   });
   megaDriveRamCartLayout.setAlignment(1).setPadding(12_sx, 0);
-    megaDriveRamCartHint.setText("16 MB paged SRAM cart (16MB-PCB-CD32X) for CD32X discs; carts 1-9 are separate files in Systems. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
+    megaDriveRamCartHint.setText("16 MB paged SRAM cart (16MB-PCB-CD32X) for CD32X discs: carts 1-9 are files in Systems. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
 
 }
 
-//keep the RAM cart row in step when the system menu inserts another cart
+//cart names, marked when the cart's file exists, and the chosen cart selected
 auto OptionSettings::refreshRamCart() -> void {
   megaDriveRamCartOption.setChecked(settings.megadrive.ramCart);
   for(auto item : megaDriveRamCartSlotOption.items()) {
-    if(item.attribute("slot").natural() == settings.megadrive.ramCartSlot) item.setSelected();
+    u32 slot = item.attribute("slot").natural();
+    item.setText({"16 MB cart ", slot, file::exists(ramCartLocation(slot)) ? "" : " (none)"});
+    if(slot == settings.megadrive.ramCartSlot) item.setSelected();
   }
 }

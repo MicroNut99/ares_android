@@ -8,11 +8,13 @@ the game into. Without it those discs stop at the boot splash in every emulator.
 
 1. Download `ares-cd32x-windows-x64.zip` from this repository's **Releases**
    (`cd32x-latest`), unzip, run `ares.exe`.
-2. **Settings → Firmware → Mega CD**: set the Sega CD BIOS (US / Japan / Europe).
-   The 32X boot ROMs are built in.
+2. Put your Sega CD BIOS files in the **`bios`** folder next to `ares.exe` as `bios_CD_U.bin`
+   (US), `bios_CD_J.bin` (Japan) and `bios_CD_E.bin` (Europe): ares uses them by default.
+   (Or set them in **Settings → Firmware → Mega CD**.) The 32X boot ROMs are built in.
 3. **Settings → Options → Mega Drive Settings**: `Mega CD 32X: RAM cart` is on by
-   default. Pick which **16 MB cart (1-9)** is in the slot (the paged 16MB-PCB-CD32X) and,
-   if wanted, *Write-protect*. Changes apply at the next load.
+   default. Pick which **16 MB cart (1-9)** is in the slot (the paged 16MB-PCB-CD32X);
+   **Create** makes that cart as a blank 16 MB file (it asks before replacing one that
+   exists). *Write-protect* if wanted. The choice applies at the next load.
 4. **Load → Sega → Mega CD 32X**, pick the game's `.cue`.
 
 ares keeps running when its window loses focus (Settings → Drivers → Input → *When focus is
@@ -22,15 +24,10 @@ controller working while another window is in front.
 
 Each cart is saved (battery-backed, like the real cart) to `Systems\RAM Cart 16 MB-<n>.ram`
 next to `ares.exe`: nine separate carts, each shared by every disc you run with it, exactly
-as a physical cart is. Delete a file to "wipe" that cart. (A `RAM Cart 16 MB.ram` from the
+as a physical cart is. Carts marked *(none)* in Options have no file yet: the first game that
+runs with one creates it, or press **Create**. (A `RAM Cart 16 MB.ram` from the
 first build becomes cart 1.) Games that know only the 4 MB cart see its layout: after reset
 the 16 MB board shows pages 0 and 1, which is the 4 MB cart.
-
-Each disc remembers the cart it last ran with (by the `.cue`'s full path, in
-`Systems\RAM Cart Games.txt`): loading it again, from Recent, drag and drop or Load, inserts
-that cart. A disc loaded for the first time takes the cart selected in Settings. During play,
-**System → RAM Cart** swaps carts (the game restarts, as on the console) and the disc then
-remembers the new one.
 
 ## Use (Android)
 

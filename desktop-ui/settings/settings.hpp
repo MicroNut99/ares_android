@@ -10,6 +10,7 @@ struct Settings : Markup::Node {
   auto load() -> void;
   auto save() -> void;
   auto process(bool load) -> void;
+  auto defaultFirmware() -> void;
 
   string filePath;
 
@@ -306,6 +307,7 @@ struct OptionSettings : VerticalLayout {
     HorizontalLayout megaDriveRamCartLayout{this, Size{~0, 0}, 5};
       CheckLabel megaDriveRamCartOption{&megaDriveRamCartLayout, Size{0, 0}, 5};
       ComboButton megaDriveRamCartSlotOption{&megaDriveRamCartLayout, Size{0, 0}};
+      Button megaDriveRamCartCreate{&megaDriveRamCartLayout, Size{0, 0}};
       CheckLabel megaDriveRamCartWriteProtectOption{&megaDriveRamCartLayout, Size{0, 0}, 5};
       Label megaDriveRamCartHint{&megaDriveRamCartLayout, Size{0, layoutVertSize}};
 };
