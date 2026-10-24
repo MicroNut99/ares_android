@@ -2,6 +2,12 @@
 
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://github.com/higan-emu/ares/blob/master/LICENSE)
 
+> **This is ares CD32X**: ares v148 with the Sega CD 32X RAM cart (16 MB, carts 1-9), for
+> Windows and Android. How to use it, how to build it (Windows, Android, and the `ares-headless`
+> test tool) and every build and command-line switch: **[README-CD32X.md](README-CD32X.md)**.
+> Downloads: the `cd32x-latest` (Windows) and `android-latest` (Android) releases.
+> SEGA CD32X by MicroNut99 2026. The rest of this page is upstream ares' README.
+
 **ares** is a multi-system emulator that began development on October 14th, 2004.
 It is a descendant of [higan](https://github.com/higan-emu/higan) and [bsnes](https://github.com/bsnes-emu/bsnes/), and focuses on accuracy and preservation.
 

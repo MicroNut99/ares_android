@@ -41,7 +41,7 @@ jobs:
       run: |
         Copy-Item README-CD32X.md build/desktop-ui/rundir/
         # Systems\ ships next to ares.exe, so ares uses it from the first launch (RAM carts,
-        # RAM Cart Games.txt, Sega CD backup RAM). Zips drop empty folders: give it a file.
+        # Sega CD backup RAM). Zips drop empty folders: give it a file.
         New-Item -ItemType Directory -Force build/desktop-ui/rundir/Systems | Out-Null
         Set-Content -Path build/desktop-ui/rundir/Systems/README.txt -Value @(
           "ares keeps its system files here:",

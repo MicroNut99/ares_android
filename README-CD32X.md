@@ -67,3 +67,176 @@ RV is set. Treat a pass here as "the code is right", not "the board will work".
 Sega CD + 32X **cartridge** games with CD audio (Sonic 32X Plus, OpenTyrian + Sega CD)
 load with **Load → Sega → Mega 32X**; when the cart's header lists the CD, ares asks for
 the `.cue` too.
+
+## Building
+
+Three things build from this repository. Nothing about the RAM cart is chosen at build time:
+cart size, cart number and write-protect are all settings, at run time.
+
+| What | Built by | Output |
+|---|---|---|
+| Windows ares (`ares.exe`) | upstream ares' CMake, `desktop-ui` | `build/desktop-ui/rundir/` |
+| Android app (APK) | Gradle, with `android/native` (CMake + NDK) inside it | `android/app/build/outputs/apk/release/app-release.apk` |
+| `ares-headless` test tool (Linux) | CMake, `android/native` | `<build dir>/ares-headless` |
+
+GitHub builds the first two on every push to `main` (`.github/workflows/cd32x-windows.yml`,
+`.github/workflows/android.yml`) and publishes them as the `cd32x-latest` and `android-latest`
+pre-releases. Both workflows can also be started by hand: **Actions → (workflow) → Run workflow**.
+Upstream's full build matrix (`push.yml`) only runs by hand in this fork.
+
+### Windows (`ares.exe`)
+
+What GitHub uses, and what works on a Windows PC:
+
+1. Install [MSYS2](https://www.msys2.org/) and open the **MSYS2 CLANG64** shell.
+2. Install the tools:
+   ```sh
+   pacman -S --needed make git cmake ccache ninja mingw-w64-clang-x86_64-clang
+   ```
+3. Get the source and build:
+   ```sh
+   git clone https://github.com/MicroNut99/ares_android
+   cd ares_android
+   cmake --preset windows-ci-mingw-native
+   cmake --build build --config RelWithDebInfo
+   ```
+   The first configure downloads ares' prebuilt Windows dependency bundle (`ares-deps`:
+   SDL, librashader, slang shaders, ...), as pinned in `deps.json`.
+4. `ares.exe` and its DLLs are in `build/desktop-ui/rundir/`. To make it like the release zip,
+   add the folders `Systems\` and `bios\` next to `ares.exe` and put your Sega CD BIOS in
+   `bios\` as `bios_CD_U.bin`, `bios_CD_J.bin`, `bios_CD_E.bin`.
+
+CMake switches (`-D<NAME>=<value>` on the configure line; the preset sets the ones marked *):
+
+| Switch | Default | What it does |
+|---|---|---|
+| `CMAKE_BUILD_TYPE` | `RelWithDebInfo`* | `Release`, `RelWithDebInfo`, `Debug` or `MinSizeRel` |
+| `ARES_CORES` | all systems | Which emulators to build, e.g. `-DARES_CORES="md"` for only the Mega Drive family (Genesis, Sega CD, 32X, Sega CD 32X): a much faster build |
+| `ARES_BUILD_LOCAL` | `ON` (`OFF`*) | Optimise for the CPU of the PC that builds it (faster there, may not run on older PCs). The release is built with `OFF` |
+| `ARES_UNITY_CORES` | `OFF` (`ON`*) | Build each core as one file: faster from scratch, slightly faster emulation, slower rebuilds |
+| `ARES_PRECOMPILE_HEADERS` | `OFF` (`ON`*) | Precompile `ares/ares.hpp` |
+| `ARES_PROFILE_ACCURACY` | `OFF` | Prefer accuracy over speed in a few places |
+| `ARES_ENABLE_CHD` | `ON` | `.chd` disc images (libchdr) |
+| `ARES_ENABLE_LIBRASHADER` | `ON` | Video shaders (librashader, slang shaders) |
+| `ARES_BUILD_OPTIONAL_TARGETS` | `OFF` (`ON`*) | Also build test programs and tools (`mia`, `mame2bml`, CPU tests) |
+| `ARES_BUILD_OFFICIAL` | `OFF` | Official version strings (from the environment variable of the same name) |
+| `ARES_SKIP_DEPS` | `OFF` | Don't download the prebuilt dependencies (use your own) |
+| `ARES_DEBUG_DEPENDENCIES` | `OFF` | Download the dependencies' source too, for debugging into them |
+| `ARES_MINGW_USE_DWARF_SYMBOLS` | `OFF` | DWARF debug symbols for gdb / lldb instead of CodeView |
+| `ENABLE_IPO` | `ON` | Link-time optimisation |
+| `ENABLE_CCACHE` | `ON` | Use ccache when installed |
+| `ARES_COMPILE_DEPRECATION_AS_WARNING` | `OFF` | Deprecation errors become warnings |
+
+Other presets in `CMakePresets.json`: `windows` (Visual Studio 2022 + ClangCL, in `build_vsclang`),
+`windows-msvc` (Visual Studio 2022 + MSVC), and the CI variants `windows-ci-cl-native`,
+`windows-ci-msvc-native` and the ARM64 cross builds `windows-ci-cl-cross` / `windows-ci-msvc-cross`.
+
+`ares.exe` command-line switches (`ares.exe --help` lists them):
+
+| Switch | What it does |
+|---|---|
+| `--system "Mega CD 32X" game.cue` | Load a game as a given system, without asking (`"Mega CD"`, `"Mega 32X"`, `"Mega Drive"`, ...) |
+| `--setting name=value` | Set a setting for this run only, e.g. `--setting MegaDrive/RAMCartSlot=3` (repeatable; `--dump-all-settings` lists the names) |
+| `--settings-file path` | Use another `settings.bml` |
+| `--save-state 1`…`9` | Load that save-state slot after the game starts |
+| `--fullscreen` / `--pseudofullscreen` | Start full screen / in a borderless window |
+| `--kiosk` | Minimal user interface (implies `--no-file-prompt`) |
+| `--no-file-prompt` | Don't ask for optional extra files |
+| `--shader name` | Video shader to use |
+| `--terminal` | Open a console window for log output |
+| `--dump-all-settings` | List every setting name and exit |
+| `--version`, `--help` | Version string / this list |
+
+The CD32X settings, for `--setting` or `settings.bml`:
+
+| Setting | Values | |
+|---|---|---|
+| `MegaDrive/RAMCart` | `true` / `false` | RAM cart in the slot for Mega CD 32X games (default `true`) |
+| `MegaDrive/RAMCartSlot` | `1`…`9` | Which 16 MB cart: `Systems\RAM Cart 16 MB-<n>.ram` |
+| `MegaDrive/RAMCartWriteProtect` | `true` / `false` | The cart's write-protect switch |
+| `Input/Defocus` | `Block` / `Allow` / `Pause` | When ares' window loses focus (default `Block`: keeps running) |
+
+Example: start OpenLara on cart 3, full screen:
+```bat
+ares.exe --system "Mega CD 32X" --setting MegaDrive/RAMCartSlot=3 --fullscreen "C:\Games\OpenLara\CDROMPlayer_cart16_music.cue"
+```
+
+### Android (APK)
+
+Needs: JDK 17, the Android SDK (platform 34), NDK **27.2.12479018**, CMake 3.28 or newer, Ninja
+and Gradle 8.9 (the repository has no Gradle wrapper: install Gradle, or open `android/` in
+Android Studio).
+
+1. Tell Gradle where the SDK and CMake are, in `android/local.properties`:
+   ```properties
+   sdk.dir=/path/to/Android/Sdk
+   cmake.dir=/path/to/cmake        # the folder that holds bin/cmake
+   ```
+2. Build:
+   ```sh
+   cd android
+   gradle assembleRelease
+   ```
+3. The APK: `android/app/build/outputs/apk/release/app-release.apk`. Install it with
+   `adb install -r app-release.apk`, or copy it to the phone.
+
+Build settings (in `android/app/build.gradle.kts`):
+
+| Setting | Value | |
+|---|---|---|
+| `applicationId` | `com.micronut99.ares` | |
+| `minSdk` / `targetSdk` / `compileSdk` | 26 / 34 / 34 | Android 8.0 or newer (AAudio) |
+| `ndkVersion` | `27.2.12479018` | |
+| `abiFilters` | `arm64-v8a` | 64-bit ARM phones only. Add `"x86_64"` for the emulator / Chromebooks |
+| CMake arguments | `-DANDROID_STL=c++_static -DCMAKE_BUILD_TYPE=Release`, `-O3` | the native core is always an optimised build, also in `assembleDebug` |
+| `versionCode` / `versionName` | 1 / `148-cd32x-1` | raise `versionCode` for builds that must install over older ones from stores |
+| signing | `app/ci-signing.jks` (store and key password `ares-cd32x`, alias `ares`) | a fixed key in the repository, so every build installs over the last one. Use your own key for builds you hand out widely |
+
+Switches of the native build (`android/native/CMakeLists.txt`):
+
+| Switch | Value | |
+|---|---|---|
+| `ARES_CORES` | `md` (fixed) | only the Mega Drive family is built |
+| `ARES_UNITY_CORES` | `ON` (fixed) | |
+| `ARES_ENABLE_CHD` | `ON` (fixed) | `.chd` discs |
+| `ARES_ANDROID_HARNESS` | `OFF` | `ON` builds `ares-headless` instead (desktop hosts, next section) |
+
+The native build replaces ares' `sourcery` resource tool with `android/native/cmake/sourcery.cmake`
+(it runs at configure time, so nothing has to run on the build machine), and builds without
+ares' desktop user interface (`hiro`) and drivers (`ruby`).
+
+### `ares-headless` (Linux test tool)
+
+The Android app's core, with no window: it boots a game, presses buttons on a schedule, saves
+screenshots and the sound, and prints the 32X COMM registers every second (COMM12 is the CD32X
+boot stacks' status: `4B10` = game running). Used to test CD32X discs without a phone.
+
+Needs clang (C++20), CMake 3.22+ and Ninja. No desktop libraries.
+```sh
+cmake -S android/native -B build-headless -G Ninja -DARES_ANDROID_HARNESS=ON \
+      -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+ninja -C build-headless ares-headless
+```
+
+Example: OpenLara on a blank 16 MB cart, Start pressed at frame 200, screenshots at 30 s and 2 min:
+```sh
+build-headless/ares-headless --game CDROMPlayer_cart16_music.cue --bios-us bios_CD_U.bin \
+  --ramcart cart16.ram --ramcart-size 16 --frames 7200 --press 200:S --press 210: \
+  --screenshot 1800:shot30.ppm --screenshot 7199:shot120.ppm
+```
+
+| Switch | What it does |
+|---|---|
+| `--game file` | The game: `.cue` / `.chd` disc, or `.32x` / `.md` / `.bin` / `.gen` / `.smd` / `.zip` cartridge |
+| `--disc file` | A Sega CD disc in the drive as well as a cartridge (Sonic 32X Plus, OpenTyrian + Sega CD) |
+| `--machine cd32x\|cd\|32x\|md` | Sega CD 32X + RAM cart / Sega CD / 32X / Genesis. Default: discs are `cd32x`, `.32x` is `32x`, the rest `md` |
+| `--bios-us`, `--bios-jp`, `--bios-eu file` | Sega CD BIOS per region |
+| `--region NTSC-U\|NTSC-J\|PAL` | Force a region (default: from the game, preferring NTSC-U) |
+| `--ramcart file` | The RAM cart's file (created blank if missing, written back at the end) |
+| `--ramcart-size 4\|8\|16` | 4 MB cart, or the paged 8 / 16 MB board (default 4) |
+| `--frames n` | How many video frames to run (60 = 1 second; default 600) |
+| `--press frame:buttons` | From that frame on, hold these buttons: `U D L R A B C X Y Z M S` (M = Mode, S = Start); `--press 210:` releases all. Repeatable |
+| `--screenshot frame:file.ppm` | Save the picture at that frame. Repeatable |
+| `--wav file.wav` | Record the sound (48 kHz stereo) |
+| `--home dir` | Where the core keeps its files (Sega CD backup RAM); default `./ares-home/` |
+| `--interpreter` | SH-2 interpreter instead of the recompiler (slower) |
