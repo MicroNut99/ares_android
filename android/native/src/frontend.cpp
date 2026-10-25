@@ -245,6 +245,14 @@ struct Session::Impl : ares::Platform {
     }
 
     std::vector<u8> memory(size, 0xff);
+    if(options.everdrive) {
+      //the EverDrive's RAM is never blank: it keeps whatever was there.  A fixed pattern, so a program
+      //that reads memory it never wrote shows it (blank 0xff hid a cartridge-boot bug, 25 Oct 2026)
+      for(u32 n = 0; n < size; n += 2) {
+        u16 w = (u16)((n >> 1) * 0x9e37 + 0x5a5a);
+        memory[n] = w >> 8; memory[n + 1] = w;
+      }
+    }
     if(!options.file.empty()) {
       auto existing = nall::file::read(toNall(options.file));
       if(!existing.empty()) {

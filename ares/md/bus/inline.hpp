@@ -18,6 +18,13 @@ alwaysinline auto Bus::read(n1 upper, n1 lower, n24 address, n16 data) -> n16 {
       data = cartridge.read(upper, lower, address, data);
     } else {
       data = mcd.readExternal(upper, lower, address, data);
+      //cartridge boot + 32X with RV = 1: the cart answers the Mega CD's half too.  Console, 25 Oct 2026
+      //(Mega EverDrive PRO, CD32X BootCamp EDCD.32X): copies from Word RAM made with RV = 1 came out
+      //garbled ("03" read as "01", 5aa5 as 4880), the same copies with RV = 0 did not.  Two drivers on
+      //the bus: modelled as their AND.
+      if(Mega32X() && m32x.io.adapterEnable && m32x.dreq.vram) {
+        data &= cartridge.read(upper, lower, address, 0xffff);
+      }
     }
     return data;
   }

@@ -51,6 +51,10 @@ struct EverDrivePro : Interface {
 
   auto load() -> void override {
     ram.allocate(16_MiB >> 1, 0xffff);
+    //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
+    //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND
+    //with 0xffff hid the cartridge boot's Word RAM bug, 25 Oct 2026)
+    for(u32 address : range(ram.size())) ram.write(address, (n16)(address * 0x9e37 + 0x5a5a));
     ramCart = pak->attribute("ramcart").boolean();
     cdBoot  = ramCart && !pak->attribute("bootable").boolean();
     writeProtect = pak->attribute("writeProtect").boolean();
