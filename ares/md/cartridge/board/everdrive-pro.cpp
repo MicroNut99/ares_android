@@ -7,9 +7,20 @@
 //  - CTRL1-7 put a bank (1-27 tested) into each window of cart 0x080000-0x3fffff;
 //  - the 68000 writes the banks (RV = 1) and reads back what it wrote after all the other banks
 //    were switched in and out; both SH2s read the same data at 0x22000000 + the window's offset.
-//Not checked on a console, so the choices below are guesses: banks 0 and 28-31, CTRL0's bank field,
-//the C (#CART) and L (LED) bits, byte writes to the registers, W = 0 write protection, the state
-//after a console reset, and whether the memory keeps its contents.
+//Checked on a console, 25 Oct 2026 (CD32X BootCamp edw0 and the cartridge boot), and NOT modelled here:
+//  - with W = 1, some of the 68000's writes to OTHER addresses (work RAM, the VDP, the Sega CD's gate
+//    array) land in the cart and change its contents, and the SH2's reads of the cart come back as
+//    zeros at that moment; with W = 0 the SH2 reads it perfectly through anything the 68000 does.
+//    A game's 68000 writes all the time, so a cartridge boot must keep W off except inside a copy
+//    into the cart (the SH2 held off it with RV = 1).  This board takes every write as a clean one and
+//    never disturbs a read, so a launcher that forgets that rule passes here and fails on the console.
+//  - the 68000 cannot write window 0 (cart 0x000000-0x07ffff) directly with the 32X on: a copy there
+//    goes through another window with window 0's bank mapped in.  Here the write lands either way
+//    (only 0x000000-0x0000ff goes to the 32X, as on the console).
+//  - W = 0 does write-protect the memory (the probe's pattern was never changed with W off).
+//Not checked on a console, so the choices below are guesses: banks 28-31, the C (#CART) and L (LED)
+//bits, byte writes to the registers, the state after a console reset, and whether the memory keeps
+//its contents across power-off.
 //
 //Registers (write-only, in /TIME space):
 //  0xa130f0      CTRL0  P X W L C . . . . . . R R R R R  - taken only when P (bit 15) is 1
