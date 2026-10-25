@@ -23,7 +23,8 @@
 //the EverDrive's own software. Games keep out of 28-31.
 //
 //Three ways the board is used (pak attributes):
-//  - cartridge (mia, "SEGA SSF" ROM): the ROM at the start of the memory, booted (CART_IN asserted),
+//  - cartridge (mia: "SEGA SSF" and no SRAM entry in the header): the ROM at the start of the memory,
+//    booted (CART_IN asserted),
 //    W = 0 until the game sets it; bank 31 is the game's save RAM ("save.ram"), the rest is blank;
 //  - RAM cart for a Sega CD 32X disc (ramcart, not bootable): the state a launcher ROM leaves
 //    (W = 1, C = 1, banks 0-7 in windows 0-7), so the disc boots and finds a 16 MB RAM cart;
@@ -41,6 +42,7 @@ struct EverDrivePro : Interface {
   n1 writeEnable;                //W
   n1 led;                        //L
   n1 cartOff;                    //C: CART_IN released
+  boolean writeProtect;          //the frontend's write-protect switch: no writes, whatever W says
   boolean ramCart;               //"ram.cart" holds all 16 MB
   boolean cdBoot;                //RAM cart use: starts as a launcher left it
   std::vector<u8> program;       //the ROM booted at power-on (cartridge and launcher use)
@@ -51,6 +53,7 @@ struct EverDrivePro : Interface {
     ram.allocate(16_MiB >> 1, 0xffff);
     ramCart = pak->attribute("ramcart").boolean();
     cdBoot  = ramCart && !pak->attribute("bootable").boolean();
+    writeProtect = pak->attribute("writeProtect").boolean();
 
     if(ramCart) {
       if(auto fp = pak->read("ram.cart")) {
@@ -107,7 +110,7 @@ struct EverDrivePro : Interface {
   }
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
-    if(!writeEnable) return;
+    if(!writeEnable || writeProtect) return;
     u32 word = offset(address) >> 1;
     if(upper) ram[word].byte(1) = data.byte(1);
     if(lower) ram[word].byte(0) = data.byte(0);

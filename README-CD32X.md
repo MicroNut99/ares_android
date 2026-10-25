@@ -14,8 +14,8 @@ the game into. Without it those discs stop at the boot splash in every emulator.
 3. **Settings → Options → Mega Drive Settings**: `Mega CD 32X: RAM cart` is on by
    default. Pick the **cart type** (the paged **16MB-PCB-CD32X**, or a **Mega EverDrive PRO**:
    see below) and which **cart (1-9)** is in the slot; **Create** makes that cart as a blank
-   16 MB file (it asks before replacing one that exists). *Write-protect* if wanted (16MB-PCB
-   only). The choice applies at the next load.
+   16 MB file (it asks before replacing one that exists). *Write-protect* if wanted. The choice
+   applies at the next load.
 4. **Load → Sega → Mega CD 32X**, pick the game's `.cue`.
 
 ares keeps running when its window loses focus (Settings → Drivers → Input → *When focus is
@@ -38,7 +38,7 @@ both SH2s, 0 bad words). ares has it in three ways:
 
 | How | What ares does |
 |---|---|
-| **A `SEGA SSF` ROM** (Load → Mega 32X or Mega Drive) | The ROM in the EverDrive's 16 MB, as the EverDrive menu starts it. Its save RAM is bank 31 (512 KB, the `.ram` save file). `edtest` shows the console's result: ALL TESTED BANKS OK. |
+| **A `SEGA SSF` ROM with no SRAM entry in its header** (Load → Mega 32X or Mega Drive) | The ROM in the EverDrive's 16 MB, as the EverDrive menu starts it. Its save RAM is bank 31 (512 KB, the `.ram` save file). `edtest` shows the console's result: ALL TESTED BANKS OK. (A `SEGA SSF` ROM *with* an SRAM entry is SGDK-style homebrew saving through Sega's mapper: it keeps the standard board.) |
 | **The RAM cart of a CD32X disc** (cart type *Mega EverDrive PRO*) | The disc boots with the EverDrive as `EDBOOT.BIN` leaves it: write on, banks 0-7 in windows 0-7, CART_IN released. Carts 1-9 are `Systems\EverDrive PRO 16 MB-<n>.ram`. |
 | **EDBOOT first** (`ares-headless --ramcart-type everdrive --ramcart-boot EDBOOT.BIN`) | The console boots the launcher from the EverDrive; it sets the mapper and releases CART_IN (CTRL0's C bit); the Sega CD BIOS then boots the disc. |
 

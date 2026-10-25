@@ -101,9 +101,9 @@ auto Mega32X::analyze(std::vector<u8>& rom) -> string {
   auto hash = Hash::SHA256(rom).digest();
   analyzeStorage(rom, hash);
 
-  //"SEGA SSF" in the header: the Mega EverDrive PRO's extended SSF mapper (16 MB, writable).
-  //Its save RAM is bank 31 (512 KB), whatever the header's SRAM entry says.
-  everdrive = !memory::compare(&rom[0x100], "SEGA SSF", 8);
+  //"SEGA SSF" in the header and no SRAM entry: the Mega EverDrive PRO's extended SSF mapper
+  //(16 MB, writable); its save RAM is bank 31 (512 KB). With an SRAM entry: the standard board.
+  everdrive = !memory::compare(&rom[0x100], "SEGA SSF", 8) && !ram && !eeprom;
   if(everdrive) {
     eeprom = {};
     ram = {};

@@ -136,9 +136,11 @@ auto MegaDrive::analyze(std::vector<u8>& rom) -> string {
   analyzeCopyProtection(rom, hash);
   analyzeRegion(rom, hash);
 
-  //"SEGA SSF" in the header: the Mega EverDrive PRO's extended SSF mapper (16 MB, writable).
-  //Its save RAM is bank 31 (512 KB), whatever the header's SRAM entry says.
-  if(!memory::compare(&rom[0x100], "SEGA SSF", 8)) {
+  //"SEGA SSF" in the header and no SRAM entry: the Mega EverDrive PRO's extended SSF mapper
+  //(16 MB, writable); its save RAM is bank 31 (512 KB). A "SEGA SSF" ROM with an SRAM entry is
+  //SGDK-style homebrew that saves through Sega's mapper (0xA130F1, SRAM at 0x200000): it keeps
+  //the standard board.
+  if(!memory::compare(&rom[0x100], "SEGA SSF", 8) && !ram && !eeprom) {
     board = "EVERDRIVE-PRO";
     eeprom = {};
     ram = {};
