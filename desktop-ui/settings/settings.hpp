@@ -129,6 +129,7 @@ struct Settings : Markup::Node {
     bool tmss = false;
     bool ramCart = true;              //Mega CD 32X: MicroNut99 RAM cart in the cartridge slot
     u32 ramCartSlot = 1;              //which 16 MB cart (16MB-PCB-CD32X, paged) is in the slot: 1-9
+    u32 ramCartType = 0;              //0 = 16MB-PCB-CD32X (paged), 1 = Mega EverDrive PRO (extended SSF)
     bool ramCartWriteProtect = false;
   } megadrive;
 };
@@ -306,6 +307,7 @@ struct OptionSettings : VerticalLayout {
       Label megaDriveTmssHint{&megaDriveTmssLayout, Size{0, layoutVertSize}};
     HorizontalLayout megaDriveRamCartLayout{this, Size{~0, 0}, 5};
       CheckLabel megaDriveRamCartOption{&megaDriveRamCartLayout, Size{0, 0}, 5};
+      ComboButton megaDriveRamCartTypeOption{&megaDriveRamCartLayout, Size{0, 0}};
       ComboButton megaDriveRamCartSlotOption{&megaDriveRamCartLayout, Size{0, 0}};
       Button megaDriveRamCartCreate{&megaDriveRamCartLayout, Size{0, 0}};
       CheckLabel megaDriveRamCartWriteProtectOption{&megaDriveRamCartLayout, Size{0, 0}, 5};

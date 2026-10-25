@@ -12,9 +12,10 @@ the game into. Without it those discs stop at the boot splash in every emulator.
    (US), `bios_CD_J.bin` (Japan) and `bios_CD_E.bin` (Europe): ares uses them by default.
    (Or set them in **Settings → Firmware → Mega CD**.) The 32X boot ROMs are built in.
 3. **Settings → Options → Mega Drive Settings**: `Mega CD 32X: RAM cart` is on by
-   default. Pick which **16 MB cart (1-9)** is in the slot (the paged 16MB-PCB-CD32X);
-   **Create** makes that cart as a blank 16 MB file (it asks before replacing one that
-   exists). *Write-protect* if wanted. The choice applies at the next load.
+   default. Pick the **cart type** (the paged **16MB-PCB-CD32X**, or a **Mega EverDrive PRO**:
+   see below) and which **cart (1-9)** is in the slot; **Create** makes that cart as a blank
+   16 MB file (it asks before replacing one that exists). *Write-protect* if wanted (16MB-PCB
+   only). The choice applies at the next load.
 4. **Load → Sega → Mega CD 32X**, pick the game's `.cue`.
 
 ares keeps running when its window loses focus (Settings → Drivers → Input → *When focus is
@@ -28,6 +29,30 @@ as a physical cart is. Carts marked *(none)* in Options have no file yet: the fi
 runs with one creates it, or press **Create**. (A `RAM Cart 16 MB.ram` from the
 first build becomes cart 1.) Games that know only the 4 MB cart see its layout: after reset
 the 16 MB board shows pages 0 and 1, which is the 4 MB cart.
+
+## Mega EverDrive PRO (16 MB)
+
+The EverDrive PRO's extended SSF mapper with its write bit makes it 16 MB of RAM for a 32X
+program: tested on a console with the CD32X BootCamp's `edtest` ROMs (all 27 banks, the 68000 and
+both SH2s, 0 bad words). ares has it in three ways:
+
+| How | What ares does |
+|---|---|
+| **A `SEGA SSF` ROM** (Load → Mega 32X or Mega Drive) | The ROM in the EverDrive's 16 MB, as the EverDrive menu starts it. Its save RAM is bank 31 (512 KB, the `.ram` save file). `edtest` shows the console's result: ALL TESTED BANKS OK. |
+| **The RAM cart of a CD32X disc** (cart type *Mega EverDrive PRO*) | The disc boots with the EverDrive as `EDBOOT.BIN` leaves it: write on, banks 0-7 in windows 0-7, CART_IN released. Carts 1-9 are `Systems\EverDrive PRO 16 MB-<n>.ram`. |
+| **EDBOOT first** (`ares-headless --ramcart-type everdrive --ramcart-boot EDBOOT.BIN`) | The console boots the launcher from the EverDrive; it sets the mapper and releases CART_IN (CTRL0's C bit); the Sega CD BIOS then boots the disc. |
+
+| Register (write-only, /TIME) | |
+|---|---|
+| `0xA130F0` CTRL0 | `P X W L C . . . . . . R R R R R`: taken only with P (bit 15) set. X = 32X mode (no effect), W = write enable, L = LED, C = CART_IN released (the Mega CD then boots and the cart moves to `0x400000`), R = the bank in window 0 |
+| `0xA130F2`-`FE` CTRL1-7 | the bank (0-31, bits 0-4) in each 512 KB window of cart `0x080000`-`0x3FFFFF` |
+
+Reset: banks 0-7 in windows 0-7; W and C as the EverDrive menu starts a game (both 0), or as EDBOOT
+leaves them for the RAM cart (both 1). The SH2 reads and the RV rules are the same as for the
+RAM cart below. **Not settled on a console** (ares makes a choice): banks 0 and 28-31, CTRL0's bank
+field, the C bit (EDBOOT is its first test), byte writes to the registers (ares takes CTRL1-7 from
+word writes and odd-byte writes), W = 0 protection, a console reset. Unlike the cart file here,
+the EverDrive's memory is probably not kept without power: only bank 31 goes to its SD card.
 
 ## Use (Android)
 
@@ -234,6 +259,9 @@ build-headless/ares-headless --game CDROMPlayer_cart16_music.cue --bios-us bios_
 | `--region NTSC-U\|NTSC-J\|PAL` | Force a region (default: from the game, preferring NTSC-U) |
 | `--ramcart file` | The RAM cart's file (created blank if missing, written back at the end) |
 | `--ramcart-size 4\|8\|16` | 4 MB cart, or the paged 8 / 16 MB board (default 4) |
+| `--ramcart-type pcb\|everdrive` | The MicroNut99 carts (default), or a Mega EverDrive PRO (16 MB) as EDBOOT leaves it |
+| `--ramcart-boot EDBOOT.BIN` | EverDrive only: boot this launcher ROM from the EverDrive first; it releases CART_IN and starts the Sega CD BIOS |
+| `--save-state frame:file`, `--load-state file` | Save a state at that frame (repeatable) / start from a state |
 | `--frames n` | How many video frames to run (60 = 1 second; default 600) |
 | `--press frame:buttons` | From that frame on, hold these buttons: `U D L R A B C X Y Z M S` (M = Mode, S = Start); `--press 210:` releases all. Repeatable |
 | `--screenshot frame:file.ppm` | Save the picture at that frame. Repeatable |

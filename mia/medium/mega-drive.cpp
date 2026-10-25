@@ -136,6 +136,18 @@ auto MegaDrive::analyze(std::vector<u8>& rom) -> string {
   analyzeCopyProtection(rom, hash);
   analyzeRegion(rom, hash);
 
+  //"SEGA SSF" in the header: the Mega EverDrive PRO's extended SSF mapper (16 MB, writable).
+  //Its save RAM is bank 31 (512 KB), whatever the header's SRAM entry says.
+  if(!memory::compare(&rom[0x100], "SEGA SSF", 8)) {
+    board = "EVERDRIVE-PRO";
+    eeprom = {};
+    ram = {};
+    ram.mode = "word";
+    ram.address = 0;
+    ram.size = 0x80000;
+    ram.enable = 1;
+  }
+
   std::vector<string> devices;
   string device = slice((const char*)&rom[0x190], 0, 16).trimRight(" ");
   if(device == "OJKRPTBVFCA") {

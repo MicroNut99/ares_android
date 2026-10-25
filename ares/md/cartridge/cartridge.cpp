@@ -15,6 +15,7 @@ auto Cartridge::connect() -> void {
   if(!node->setPak(pak = platform->pak(node))) return;
 
   information = {};
+  cartOff = 0;
   information.title    = pak->attribute("title");
   auto region = pak->attribute("region");
   information.regions  = nall::split_and_strip(region, ",");
@@ -22,6 +23,8 @@ auto Cartridge::connect() -> void {
 
   if(pak->attribute("mega32x").boolean()) {
     board = std::make_unique<Board::Mega32X>(*this);
+  } else if(pak->attribute("everdrive").boolean() || pak->attribute("board") == "EVERDRIVE-PRO") {
+    board = std::make_unique<Board::EverDrivePro>(*this);
   } else if(pak->attribute("ramcart").boolean()) {
     board = std::make_unique<Board::RamCart>(*this);
   } else if(pak->read("svp.rom")) {
@@ -50,6 +53,7 @@ auto Cartridge::disconnect() -> void {
   pak.reset();
   node.reset();
   information = {};
+  cartOff = 0;
 }
 
 auto Cartridge::save() -> void {

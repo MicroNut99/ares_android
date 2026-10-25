@@ -76,4 +76,5 @@ extern std::shared_ptr<Emulator> emulator;
 
 //Mega CD 32X RAM carts (emulator/mega-cd-32x.cpp): the folder, and cart `slot`'s file (1-9)
 auto ramCartDirectory() -> string;
-auto ramCartLocation(u32 slot) -> string;
+auto ramCartName(u32 type) -> string;
+auto ramCartLocation(u32 slot, u32 type) -> string;

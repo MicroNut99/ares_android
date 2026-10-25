@@ -8,6 +8,7 @@ namespace Board {
 #include "realtec.cpp"
 #include "game-genie.cpp"
 #include "ram-cart.cpp"
+#include "everdrive-pro.cpp"
 #include "mega-32x.cpp"
 #include "debugger.cpp"
 

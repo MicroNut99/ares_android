@@ -45,7 +45,8 @@ jobs:
         New-Item -ItemType Directory -Force build/desktop-ui/rundir/Systems | Out-Null
         Set-Content -Path build/desktop-ui/rundir/Systems/README.txt -Value @(
           "ares keeps its system files here:",
-          "  RAM Cart 16 MB-1.ram ... RAM Cart 16 MB-9.ram   the nine 16 MB RAM carts",
+          "  RAM Cart 16 MB-1.ram ... RAM Cart 16 MB-9.ram   the nine 16 MB RAM carts (16MB-PCB-CD32X)",
+          "  EverDrive PRO 16 MB-1.ram ... -9.ram            the nine Mega EverDrive PRO carts",
           "  Mega CD 32X.sys, Mega CD.sys, ...               Sega CD backup RAM and other system data",
           "Keep this folder next to ares.exe."
         )

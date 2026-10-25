@@ -28,12 +28,17 @@ auto ramCartDirectory() -> string {
   return directory;
 }
 
-auto ramCartLocation(u32 slot) -> string {
+//type 0: the 16MB-PCB-CD32X (paged); 1: a Mega EverDrive PRO (extended SSF mapper), as EDBOOT leaves it
+auto ramCartName(u32 type) -> string {
+  return type == 1 ? "EverDrive PRO 16 MB" : "RAM Cart 16 MB";
+}
+
+auto ramCartLocation(u32 slot, u32 type) -> string {
   string directory = ramCartDirectory();
-  string location{directory, "RAM Cart 16 MB-", slot, ".ram"};
+  string location{directory, ramCartName(type), "-", slot, ".ram"};
   //the first build kept one cart as "RAM Cart 16 MB.ram": that becomes cart 1
   string previous{directory, "RAM Cart 16 MB.ram"};
-  if(slot == 1 && !file::exists(location) && file::exists(previous)) file::move(previous, location);
+  if(type == 0 && slot == 1 && !file::exists(location) && file::exists(previous)) file::move(previous, location);
   return location;
 }
 
@@ -41,9 +46,11 @@ auto ramCartLocation(u32 slot) -> string {
 auto MegaCD32X::makeRamCart(u32 slot) -> void {
   if(slot < 1 || slot > 9) slot = 1;
   const u32 size = 16_MiB;
-  ramCartFile = ramCartLocation(slot);
+  u32 type = settings.megadrive.ramCartType;
+  ramCartFile = ramCartLocation(slot, type);
   ramCart = std::make_shared<vfs::directory>();
-  ramCart->setAttribute("title", "RAM Cart");
+  ramCart->setAttribute("title", type == 1 ? "Mega EverDrive PRO" : "RAM Cart");
+  if(type == 1) ramCart->setAttribute("everdrive", true);  //the extended SSF mapper, as EDBOOT leaves it
   ramCart->setAttribute("region", "NTSC-U, NTSC-J, PAL");
   ramCart->setAttribute("bootable", false);  //no CART_IN: the disc boots
   ramCart->setAttribute("mega32x", true);

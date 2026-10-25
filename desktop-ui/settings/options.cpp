@@ -108,6 +108,16 @@ auto OptionSettings::construct() -> void {
   megaDriveRamCartOption.setText("Mega CD 32X: RAM cart").setChecked(settings.megadrive.ramCart).onToggle([&] {
     settings.megadrive.ramCart = megaDriveRamCartOption.checked();
   });
+  { ComboButtonItem item{&megaDriveRamCartTypeOption};
+    item.setText("16MB-PCB-CD32X");
+    item.setAttribute("type", string{0}); }
+  { ComboButtonItem item{&megaDriveRamCartTypeOption};
+    item.setText("Mega EverDrive PRO");
+    item.setAttribute("type", string{1}); }
+  megaDriveRamCartTypeOption.onChange([&] {
+    settings.megadrive.ramCartType = megaDriveRamCartTypeOption.selected().attribute("type").natural();
+    refreshRamCart();
+  });
   for(u32 slot : range(1, 10)) {
     ComboButtonItem item{&megaDriveRamCartSlotOption};
     item.setAttribute("slot", string{slot});
@@ -124,10 +134,10 @@ auto OptionSettings::construct() -> void {
         .setAlignment(settingsWindow).information();
       return;
     }
-    string location = ramCartLocation(slot);
+    string location = ramCartLocation(slot, settings.megadrive.ramCartType);
     if(file::exists(location)) {
       auto choice = MessageDialog().setTitle("RAM Cart").setText({
-        "16 MB cart ", slot, " already exists:\n", location, "\n\n",
+        ramCartName(settings.megadrive.ramCartType), " ", slot, " already exists:\n", location, "\n\n",
         "Replace it with a blank cart? Everything in it is lost."
       }).setAlignment(settingsWindow).question({"Replace", "Cancel"});
       if(choice != "Replace") return;
@@ -138,23 +148,27 @@ auto OptionSettings::construct() -> void {
       return;
     }
     refreshRamCart();
-    MessageDialog().setTitle("RAM Cart").setText({"Created a blank 16 MB cart ", slot, ":\n", location})
+    MessageDialog().setTitle("RAM Cart").setText({"Created a blank ", ramCartName(settings.megadrive.ramCartType), " ", slot, ":\n", location})
       .setAlignment(settingsWindow).information();
   });
   megaDriveRamCartWriteProtectOption.setText("Write-protect").setChecked(settings.megadrive.ramCartWriteProtect).onToggle([&] {
     settings.megadrive.ramCartWriteProtect = megaDriveRamCartWriteProtectOption.checked();
   });
   megaDriveRamCartLayout.setAlignment(1).setPadding(12_sx, 0);
-    megaDriveRamCartHint.setText("16 MB paged SRAM cart (16MB-PCB-CD32X) for CD32X discs: carts 1-9 are files in Systems. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
+    megaDriveRamCartHint.setText("16 MB RAM cart for CD32X discs: the paged 16MB-PCB-CD32X, or a Mega EverDrive PRO as EDBOOT leaves it. Carts 1-9 are files in Systems. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
 
 }
 
 //cart names, marked when the cart's file exists, and the chosen cart selected
 auto OptionSettings::refreshRamCart() -> void {
   megaDriveRamCartOption.setChecked(settings.megadrive.ramCart);
+  u32 type = settings.megadrive.ramCartType;
+  for(auto item : megaDriveRamCartTypeOption.items()) {
+    if(item.attribute("type").natural() == type) item.setSelected();
+  }
   for(auto item : megaDriveRamCartSlotOption.items()) {
     u32 slot = item.attribute("slot").natural();
-    item.setText({"16 MB cart ", slot, file::exists(ramCartLocation(slot)) ? "" : " (none)"});
+    item.setText({"cart ", slot, file::exists(ramCartLocation(slot, type)) ? "" : " (none)"});
     if(slot == settings.megadrive.ramCartSlot) item.setSelected();
   }
 }

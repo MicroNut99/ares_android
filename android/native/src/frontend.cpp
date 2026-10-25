@@ -222,15 +222,27 @@ struct Session::Impl : ares::Platform {
   }
 
   auto makeRamCart(const RamCart& options) -> std::string {
-    u32 size = options.sizeMiB == 16 ? 16_MiB : options.sizeMiB == 8 ? 8_MiB : 4_MiB;
+    u32 size = options.everdrive || options.sizeMiB == 16 ? 16_MiB : options.sizeMiB == 8 ? 8_MiB : 4_MiB;
     ramCartPak = std::make_shared<vfs::directory>();
-    ramCartPak->setAttribute("title", "RAM Cart");
+    ramCartPak->setAttribute("title", options.everdrive ? "Mega EverDrive PRO" : "RAM Cart");
     ramCartPak->setAttribute("region", "NTSC-U, NTSC-J, PAL");
     ramCartPak->setAttribute("bootable", false);  //does not assert CART_IN: the disc boots
     ramCartPak->setAttribute("mega32x", true);
     ramCartPak->setAttribute("ramcart", true);
     ramCartPak->setAttribute("size", size);
     ramCartPak->setAttribute("writeProtect", options.writeProtect);
+    if(options.everdrive) {
+      ramCartPak->setAttribute("everdrive", true);
+      if(!options.boot.empty()) {
+        auto rom = nall::file::read(toNall(options.boot));
+        if(rom.size() < 0x200) return "Could not read the EverDrive launcher ROM " + options.boot;
+        ramCartPak->setAttribute("bootable", true);  //the launcher boots first (CART_IN asserted)
+        ramCartPak->append("program.rom", rom);
+        log("EverDrive PRO: booting the launcher " + options.boot + " first");
+      }
+    } else if(!options.boot.empty()) {
+      return "A launcher ROM (--ramcart-boot) needs the EverDrive PRO cart (--ramcart-type everdrive).";
+    }
 
     std::vector<u8> memory(size, 0xff);
     if(!options.file.empty()) {
@@ -333,7 +345,8 @@ struct Session::Impl : ares::Platform {
 
     booted = machine;
     bootedDescription = std::string{(const char*)systemName} + " (" + (const char*)region + ")";
-    if(ramCartPak) bootedDescription += " + " + std::to_string(request.ramCart.sizeMiB) + " MB RAM cart";
+    if(ramCartPak) bootedDescription += request.ramCart.everdrive ? std::string{" + Mega EverDrive PRO (16 MB)"}
+                                      : " + " + std::to_string(request.ramCart.sizeMiB) + " MB RAM cart";
     if(cart && disc) bootedDescription += " + CD";
     log("Booted " + bootedDescription);
     return {};

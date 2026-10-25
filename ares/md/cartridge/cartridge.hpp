@@ -7,7 +7,9 @@ struct Cartridge : Thread {
 
   auto title() const -> string { return information.title; }
   auto regions() const -> std::vector<string> { return information.regions; }
-  auto bootable() const -> boolean { return information.bootable; }  //CART_IN line
+  //CART_IN line. A board can release it while the console runs (EverDrive PRO: CTRL0's C bit),
+  //which turns a cartridge boot into a Mega CD boot (mode 1 to mode 2).
+  auto bootable() const -> boolean { return information.bootable && !cartOff; }
 
   //cartridge.cpp
   auto allocate(Node::Port) -> Node::Peripheral;
@@ -39,6 +41,7 @@ struct Cartridge : Thread {
 
   std::unique_ptr<Board::Interface> board;
   maybe<Board::Interface&> child;
+  n1 cartOff;  //set by the board: CART_IN released
 };
 
 #include "slot.hpp"

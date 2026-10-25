@@ -3,7 +3,9 @@ struct Mega32X : Interface {
   std::unique_ptr<Board::Interface> board;
 
   auto load() -> void override {
-    if(pak && pak->attribute("ramcart").boolean()) {
+    if(pak && pak->attribute("everdrive").boolean()) {
+      board = std::make_unique<Board::EverDrivePro>(*cartridge);  //SSF ROM, or the EverDrive as RAM cart
+    } else if(pak && pak->attribute("ramcart").boolean()) {
       board = std::make_unique<Board::RamCart>(*cartridge);
     } else if(pak) {
       board = std::make_unique<Board::Standard>(*cartridge);

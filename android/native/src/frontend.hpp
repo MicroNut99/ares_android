@@ -41,6 +41,10 @@ struct RamCart {
   std::string file;        //where the cart's SRAM lives (battery-backed); created if missing
   uint32_t sizeMiB = 4;    //4 (MicroNut99 RAM cart), 8 or 16 (16MB-PCB-CD32X, paged)
   bool writeProtect = false;
+  bool everdrive = false;  //a Mega EverDrive PRO as the RAM cart instead (16 MB, extended SSF mapper)
+  std::string boot;        //EverDrive only: a launcher ROM, booted first from bank 0; it sets the
+                           //mapper and releases CART_IN itself. Empty: the disc boots at once, with
+                           //the EverDrive as a launcher would leave it
 };
 
 struct LoadRequest {

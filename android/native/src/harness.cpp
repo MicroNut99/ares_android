@@ -3,6 +3,7 @@
 //  ares-headless --game disc.cue [--disc x.cue] [--machine cd32x|cd|32x|md]
 //                --bios-us us.bin [--bios-jp jp.bin] [--bios-eu eu.bin]
 //                [--ramcart cart.bin] [--ramcart-size 4|8|16] [--frames 3600]
+//                [--ramcart-type pcb|everdrive] [--ramcart-boot launcher.bin]   (Mega EverDrive PRO)
 //                [--press frame:buttons ...] [--screenshot frame:file.ppm ...]
 //                [--wav out.wav] [--home dir] [--interpreter]
 //
@@ -81,6 +82,8 @@ int main(int argc, char** argv) {
   uint32_t frames = 600;
   std::map<uint32_t, uint32_t> presses;      //frame -> buttons from that frame on
   std::map<uint32_t, std::string> shots;     //frame -> file
+  std::map<uint32_t, std::string> saves;     //frame -> state file
+  std::string loadFile;
   std::string wavFile;
   paths.home = "./ares-home/";
 
@@ -96,6 +99,8 @@ int main(int argc, char** argv) {
     else if(a == "--region") request.region = next();
     else if(a == "--ramcart") request.ramCart.file = next();
     else if(a == "--ramcart-size") request.ramCart.sizeMiB = (uint32_t)atoi(next().c_str());
+    else if(a == "--ramcart-type") request.ramCart.everdrive = next() == "everdrive";
+    else if(a == "--ramcart-boot") request.ramCart.boot = next();
     else if(a == "--frames") frames = (uint32_t)atoi(next().c_str());
     else if(a == "--interpreter") request.recompiler = false;
     else if(a == "--wav") wavFile = next();
@@ -108,6 +113,11 @@ int main(int argc, char** argv) {
     } else if(a == "--press") {
       auto v = next(); auto c = v.find(':');
       presses[(uint32_t)atoi(v.substr(0, c).c_str())] = parseButtons(v.substr(c + 1));
+    } else if(a == "--save-state") {
+      auto v = next(); auto c = v.find(':');
+      saves[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
+    } else if(a == "--load-state") {
+      loadFile = next();
     } else if(a == "--screenshot") {
       auto v = next(); auto c = v.find(':');
       shots[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
@@ -126,6 +136,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   printf("booted: %s\n", session.description().c_str());
+  if(!loadFile.empty()) printf("load state %s: %s\n", loadFile.c_str(), session.loadState(loadFile) ? "ok" : "FAILED");
 
   Wav wav;
   if(!wavFile.empty()) wav.open(wavFile);
@@ -147,6 +158,8 @@ int main(int argc, char** argv) {
     wav.write(audio.data(), got);
 
     if(session.copyFrame(frame, serial)) serial = frame.serial;
+    if(auto it = saves.find(f); it != saves.end())
+      printf("frame %u: save state %s: %s\n", f, it->second.c_str(), session.saveState(it->second) ? "ok" : "FAILED");
     if(auto it = shots.find(f); it != shots.end()) {
       writePPM(it->second, frame);
       printf("frame %u: screenshot %s (%ux%u, aspect %.3f)\n", f, it->second.c_str(), frame.width, frame.height, frame.aspect);

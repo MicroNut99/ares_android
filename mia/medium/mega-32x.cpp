@@ -6,6 +6,8 @@ struct Mega32X : Cartridge {
   auto analyze(std::vector<u8>& rom) -> string;
   auto analyzeStorage(std::vector<u8>& rom, string hash) -> void;
 
+  bool everdrive = false;  //"SEGA SSF": the Mega EverDrive PRO's extended SSF mapper
+
   struct RAM {
     explicit operator bool() const { return mode && size != 0; }
 
@@ -44,6 +46,7 @@ auto Mega32X::load(string location) -> LoadResult {
   pak->setAttribute("region",   document["game/region"].string());
   pak->setAttribute("bootable", true);
   pak->setAttribute("mega32x",  true);
+  pak->setAttribute("everdrive", everdrive);
   auto deviceList = document["game/device"].string();
   auto devices = nall::split(deviceList, ", ");
   pak->setAttribute("megacd",   (bool)(std::ranges::find(devices, string{"Mega CD"}) != devices.end()));
@@ -97,6 +100,17 @@ auto Mega32X::analyze(std::vector<u8>& rom) -> string {
 
   auto hash = Hash::SHA256(rom).digest();
   analyzeStorage(rom, hash);
+
+  //"SEGA SSF" in the header: the Mega EverDrive PRO's extended SSF mapper (16 MB, writable).
+  //Its save RAM is bank 31 (512 KB), whatever the header's SRAM entry says.
+  everdrive = !memory::compare(&rom[0x100], "SEGA SSF", 8);
+  if(everdrive) {
+    eeprom = {};
+    ram = {};
+    ram.mode = "word";
+    ram.address = 0;
+    ram.size = 0x80000;
+  }
 
   std::vector<string> devices;
   string device = slice((const char*)&rom[0x190], 0, 16).trimRight(" ");
