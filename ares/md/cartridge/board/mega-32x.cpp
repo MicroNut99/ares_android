@@ -60,7 +60,14 @@ struct Mega32X : Interface {
   }
 
   auto writeIO(n1 upper, n1 lower, n24 address, n16 data) -> void override {
-    board->writeIO(upper, lower, address, data);
+    //with the 32X on, a write to the cartridge's registers (/TIME, 0xa130xx) reaches the cartridge
+    //only while RV = 1.  Console, 25 Oct 2026 (Mega EverDrive PRO, CD32X BootCamp EDCD.32X): its
+    //mapper writes made with RV = 0 were not taken (the cart stayed write-protected); with RV = 1,
+    //as edtest and Chilly Willy's SRAM code make them, they are.
+    bool cartRegister = address >= 0xa13000 && address <= 0xa130ff;
+    if(!cartRegister || !m32x.io.adapterEnable || m32x.dreq.vram) {
+      board->writeIO(upper, lower, address, data);
+    }
 
     return m32x.writeExternalIO(upper, lower, address, data);
   }
