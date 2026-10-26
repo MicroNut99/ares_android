@@ -7,6 +7,11 @@ on:
     tags: [ 'cd32x-v*' ]
     paths-ignore: [ 'android/**', '**.md' ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Also publish a release with this tag (notes: .github/cd32x-release-notes.md)'
+        required: false
+        default: ''
 permissions:
   contents: write
 concurrency:
@@ -68,10 +73,11 @@ jobs:
         name: ares-cd32x-windows-x64
         path: ares-cd32x-windows-x64.zip
 
-  # a tag cd32x-v* makes a release of its own, named after the tag, with the tag's message as its notes
+  # a tag cd32x-v* (pushed), or a dispatch with release_tag, makes a release of its own, named after the
+  # tag: the tag's message as its notes, or .github/cd32x-release-notes.md for a dispatch
   release:
     needs: windows-x64
-    if: startsWith(github.ref, 'refs/tags/cd32x-v')
+    if: startsWith(github.ref, 'refs/tags/cd32x-v') || github.event.inputs.release_tag != ''
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -84,15 +90,21 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
+        INPUT_TAG: ${{ github.event.inputs.release_tag }}
       run: |
-        tag="${GITHUB_REF#refs/tags/}"
-        git tag -l --format='%(contents)' "$tag" > notes.md
+        if [ -n "$INPUT_TAG" ]; then
+          tag="$INPUT_TAG"
+          cp .github/cd32x-release-notes.md notes.md 2>/dev/null || true
+        else
+          tag="${GITHUB_REF#refs/tags/}"
+          git tag -l --format='%(contents)' "$tag" > notes.md
+        fi
         [ -s notes.md ] || echo "ares v148 + Sega CD 32X RAM carts. Built from ${GITHUB_SHA::7}." > notes.md
         mv ares-cd32x-windows-x64.zip "ares-cd32x-windows-x64-$tag.zip"
         if gh release view "$tag" >/dev/null 2>&1; then
           gh release upload "$tag" "ares-cd32x-windows-x64-$tag.zip" --clobber
         else
-          gh release create "$tag" --title "ares CD32X $tag (Windows x64)" --notes-file notes.md "ares-cd32x-windows-x64-$tag.zip"
+          gh release create "$tag" --target "$GITHUB_SHA" --title "ares CD32X $tag (Windows x64)" --notes-file notes.md "ares-cd32x-windows-x64-$tag.zip"
         fi
 
   publish:
