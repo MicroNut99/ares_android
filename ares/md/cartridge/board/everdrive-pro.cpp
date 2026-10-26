@@ -15,8 +15,10 @@
 //    68000's own writes with W = 1 are clean while the SH2s stay off the cart (the cartridge boot's
 //    copies, with one stack push inside the W = 1 window, work).  Model (disturb(), from the 68000
 //    bus): an SH2 read of the cart within 1 us of such a write returns 0 and the word takes the
-//    68000's data.  Not seen on the console: the exact overlap, which word changes - the model is
-//    deterministic, not exact.  A launcher that leaves W on fails here as on the console.
+//    68000's data.  With RV = 1 the 32X holds the SH2s off the cart, so a 68000 write then (the
+//    cartridge boot's copies push once inside their W = 1 window) disturbs nothing.  Not seen on the
+//    console: the exact overlap, which word changes - the model is deterministic, not exact.  A
+//    launcher that leaves W on fails here as on the console.
 //  - the 68000 cannot write window 0 (cart 0x000000-0x07ffff) directly with the 32X on: a copy there
 //    goes through another window with window 0's bank mapped in (mega-32x.cpp drops the direct write;
 //    0x000000-0x0000ff goes to the 32X, as on the console).
@@ -166,6 +168,7 @@ struct EverDrivePro : Interface {
   auto disturb(n24 address, n16 data) -> void override {
     if(!writeEnable || writeProtect) return;
     if(!Mega32X() || !m32x.io.adapterEnable) return;  //seen with the 32X on; without it: not measured
+    if(m32x.dreq.vram) return;  //RV = 1: the 32X holds the SH2s off the cart, so nothing is disturbed
     u64 now = cpu.clock();
     if(!distLast || !near(now, distLast)) distFirst = now;
     distLast = now;
