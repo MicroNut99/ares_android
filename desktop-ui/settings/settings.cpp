@@ -162,6 +162,7 @@ auto Settings::process(bool load) -> void {
   bind(natural, "MegaDrive/RAMCartSlot", megadrive.ramCartSlot);
   bind(natural, "MegaDrive/RAMCartType", megadrive.ramCartType);
   bind(boolean, "MegaDrive/RAMCartWriteProtect", megadrive.ramCartWriteProtect);
+  bind(string,  "MegaDrive/RAMCartLauncher", megadrive.ramCartLauncher);
 
   for(u32 index : range(9)) {
     string name = {"Recent/Game-", 1 + index};

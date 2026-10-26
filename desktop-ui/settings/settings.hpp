@@ -131,6 +131,7 @@ struct Settings : Markup::Node {
     u32 ramCartSlot = 1;              //which 16 MB cart (16MB-PCB-CD32X, paged) is in the slot: 1-9
     u32 ramCartType = 0;              //0 = 16MB-PCB-CD32X (paged), 1 = Mega EverDrive PRO (extended SSF)
     bool ramCartWriteProtect = false;
+    string ramCartLauncher;           //EverDrive PRO: a launcher ROM (EDCD.32X) booted from the cart first - the cartridge boot
   } megadrive;
 };
 
@@ -312,6 +313,13 @@ struct OptionSettings : VerticalLayout {
       Button megaDriveRamCartCreate{&megaDriveRamCartLayout, Size{0, 0}};
       CheckLabel megaDriveRamCartWriteProtectOption{&megaDriveRamCartLayout, Size{0, 0}, 5};
       Label megaDriveRamCartHint{&megaDriveRamCartLayout, Size{0, layoutVertSize}};
+    HorizontalLayout megaDriveLauncherLayout{this, Size{~0, 0}, 5};
+      Label megaDriveLauncherLabel{&megaDriveLauncherLayout, Size{0, 0}, 5};
+      LineEdit megaDriveLauncherPath{&megaDriveLauncherLayout, Size{~0, 0}, 5};
+      Button megaDriveLauncherBrowse{&megaDriveLauncherLayout, Size{0, 0}, 5};
+      Button megaDriveLauncherClear{&megaDriveLauncherLayout, Size{0, 0}};
+    HorizontalLayout megaDriveLauncherHintLayout{this, Size{~0, 0}, 5};
+      Label megaDriveLauncherHint{&megaDriveLauncherHintLayout, Size{0, layoutVertSize}};
 };
 
 struct FirmwareSettings : VerticalLayout {

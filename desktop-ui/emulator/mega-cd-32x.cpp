@@ -57,6 +57,15 @@ auto MegaCD32X::makeRamCart(u32 slot) -> void {
   ramCart->setAttribute("ramcart", true);
   ramCart->setAttribute("size", size);
   ramCart->setAttribute("writeProtect", settings.megadrive.ramCartWriteProtect);
+  if(type == 1 && settings.megadrive.ramCartLauncher) {
+    //the cartridge boot: the launcher ROM (EDCD.32X) boots from the EverDrive first, starts the Sega CD
+    //itself and hands over to the disc's boot stack - what the console does (CD32X BootCamp docs/12)
+    auto rom = file::read(settings.megadrive.ramCartLauncher);
+    if(rom.size() >= 0x200) {
+      ramCart->setAttribute("bootable", true);  //CART_IN asserted: the launcher boots
+      ramCart->append("program.rom", rom);
+    }
+  }
   std::vector<u8> memory(size, 0xff);
   auto existing = file::read(ramCartFile);
   if(!existing.empty()) memcpy(memory.data(), existing.data(), min(existing.size(), memory.size()));

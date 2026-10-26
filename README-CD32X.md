@@ -40,7 +40,7 @@ both SH2s, 0 bad words). ares has it in three ways:
 |---|---|
 | **A `SEGA SSF` ROM with no SRAM entry in its header** (Load → Mega 32X or Mega Drive) | The ROM in the EverDrive's 16 MB, as the EverDrive menu starts it. Its save RAM is bank 31 (512 KB, the `.ram` save file). `edtest` shows the console's result: ALL TESTED BANKS OK. (A `SEGA SSF` ROM *with* an SRAM entry keeps the standard board here - on the console the EverDrive's mapper is on for it too, and bank 31 is the memory the OS saves; build such a probe without the entry to run it in ares.) |
 | **The RAM cart of a CD32X disc** (cart type *Mega EverDrive PRO*) | The disc boots with the EverDrive as a launcher leaves it: write on, banks 0-7 in windows 0-7, CART_IN released. Carts 1-9 are `Systems\EverDrive PRO 16 MB-<n>.ram`. (A model, not the console: see below.) |
-| **The cartridge boot** (`ares-headless --ramcart-type everdrive --ramcart-boot EDCD.32X`) | What the console does (25 Oct 2026): it boots the launcher from the EverDrive, which starts the Sega CD itself and hands over to the disc's stack; the EverDrive stays the cartridge at `0x000000`. CD32X BootCamp `docs/12`. |
+| **The cartridge boot** (Windows: Settings → Options → *EverDrive launcher* → Browse to `EDCD.32X`, cart type *Mega EverDrive PRO*, then Load the disc; headless: `--ramcart-type everdrive --ramcart-boot EDCD.32X`) | What the console does (25 Oct 2026): it boots the launcher from the EverDrive, which starts the Sega CD itself and hands over to the disc's stack; the EverDrive stays the cartridge at `0x000000`. The disc's saves in the EverDrive's bank 31 land in the cart file. CD32X BootCamp `docs/12`. |
 
 | Register (write-only, /TIME) | |
 |---|---|

@@ -155,7 +155,29 @@ auto OptionSettings::construct() -> void {
     settings.megadrive.ramCartWriteProtect = megaDriveRamCartWriteProtectOption.checked();
   });
   megaDriveRamCartLayout.setAlignment(1).setPadding(12_sx, 0);
-    megaDriveRamCartHint.setText("16 MB RAM cart for CD32X discs: the paged 16MB-PCB-CD32X, or a Mega EverDrive PRO as EDBOOT leaves it. Carts 1-9 are files in Systems. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
+    megaDriveRamCartHint.setText("16 MB RAM cart for CD32X discs: the paged 16MB-PCB-CD32X, or a Mega EverDrive PRO. Carts 1-9 are files in Systems. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
+
+  //the cartridge boot: a launcher ROM (EDCD.32X) in the EverDrive, booted before the disc, as the console does it
+  megaDriveLauncherLabel.setText("EverDrive launcher");
+  megaDriveLauncherPath.setEditable(false).setText(settings.megadrive.ramCartLauncher);
+  megaDriveLauncherBrowse.setText("Browse ...").onActivate([&] {
+    BrowserDialog dialog;
+    dialog.setTitle("Select the EverDrive launcher ROM (EDCD.32X)");
+    dialog.setPath(settings.megadrive.ramCartLauncher ? Location::path(settings.megadrive.ramCartLauncher) : Path::desktop());
+    dialog.setAlignment(settingsWindow);
+    dialog.setFilters({"32X ROM|*.32X:*.32x:*.bin:*.BIN", "All|*"});
+    if(auto location = program.openFile(dialog)) {
+      settings.megadrive.ramCartLauncher = location;
+      megaDriveLauncherPath.setText(location);
+    }
+  });
+  megaDriveLauncherClear.setText("Clear").onActivate([&] {
+    settings.megadrive.ramCartLauncher = "";
+    megaDriveLauncherPath.setText("");
+  });
+  megaDriveLauncherLayout.setAlignment(1).setPadding(12_sx, 0);
+  megaDriveLauncherHintLayout.setAlignment(1).setPadding(12_sx, 0);
+    megaDriveLauncherHint.setText("Mega EverDrive PRO only: boot this ROM from the cart first (the cartridge boot, EDCD.32X); it starts the Sega CD and the disc. Empty: the disc boots with the cart as a launcher left it. Applies at next load").setFont(Font().setSize(7.0)).setForegroundColor(SystemColor::Sublabel);
 
 }
 
