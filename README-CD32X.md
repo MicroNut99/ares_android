@@ -38,21 +38,29 @@ both SH2s, 0 bad words). ares has it in three ways:
 
 | How | What ares does |
 |---|---|
-| **A `SEGA SSF` ROM with no SRAM entry in its header** (Load → Mega 32X or Mega Drive) | The ROM in the EverDrive's 16 MB, as the EverDrive menu starts it. Its save RAM is bank 31 (512 KB, the `.ram` save file). `edtest` shows the console's result: ALL TESTED BANKS OK. (A `SEGA SSF` ROM *with* an SRAM entry is SGDK-style homebrew saving through Sega's mapper: it keeps the standard board.) |
-| **The RAM cart of a CD32X disc** (cart type *Mega EverDrive PRO*) | The disc boots with the EverDrive as `EDBOOT.BIN` leaves it: write on, banks 0-7 in windows 0-7, CART_IN released. Carts 1-9 are `Systems\EverDrive PRO 16 MB-<n>.ram`. |
-| **EDBOOT first** (`ares-headless --ramcart-type everdrive --ramcart-boot EDBOOT.BIN`) | The console boots the launcher from the EverDrive; it sets the mapper and releases CART_IN (CTRL0's C bit); the Sega CD BIOS then boots the disc. |
+| **A `SEGA SSF` ROM with no SRAM entry in its header** (Load → Mega 32X or Mega Drive) | The ROM in the EverDrive's 16 MB, as the EverDrive menu starts it. Its save RAM is bank 31 (512 KB, the `.ram` save file). `edtest` shows the console's result: ALL TESTED BANKS OK. (A `SEGA SSF` ROM *with* an SRAM entry keeps the standard board here - on the console the EverDrive's mapper is on for it too, and bank 31 is the memory the OS saves; build such a probe without the entry to run it in ares.) |
+| **The RAM cart of a CD32X disc** (cart type *Mega EverDrive PRO*) | The disc boots with the EverDrive as a launcher leaves it: write on, banks 0-7 in windows 0-7, CART_IN released. Carts 1-9 are `Systems\EverDrive PRO 16 MB-<n>.ram`. (A model, not the console: see below.) |
+| **The cartridge boot** (`ares-headless --ramcart-type everdrive --ramcart-boot EDCD.32X`) | What the console does (25 Oct 2026): it boots the launcher from the EverDrive, which starts the Sega CD itself and hands over to the disc's stack; the EverDrive stays the cartridge at `0x000000`. CD32X BootCamp `docs/12`. |
 
 | Register (write-only, /TIME) | |
 |---|---|
-| `0xA130F0` CTRL0 | `P X W L C . . . . . . R R R R R`: taken only with P (bit 15) set. X = 32X mode (no effect), W = write enable, L = LED, C = CART_IN released (the Mega CD then boots and the cart moves to `0x400000`), R = the bank in window 0 |
+| `0xA130F0` CTRL0 | `P X W L C . . . . . . R R R R R`: taken only with P (bit 15) set. X = 32X mode (no effect), W = write enable, L = LED, C = CART_IN (no effect on the console: the EverDrive stays the cartridge), R = the bank in window 0 |
 | `0xA130F2`-`FE` CTRL1-7 | the bank (0-31, bits 0-4) in each 512 KB window of cart `0x080000`-`0x3FFFFF` |
 
-Reset: banks 0-7 in windows 0-7; W and C as the EverDrive menu starts a game (both 0), or as EDBOOT
-leaves them for the RAM cart (both 1). The SH2 reads and the RV rules are the same as for the
-RAM cart below. **Not settled on a console** (ares makes a choice): banks 0 and 28-31, CTRL0's bank
-field, the C bit (EDBOOT is its first test), byte writes to the registers (ares takes CTRL1-7 from
-word writes and odd-byte writes), W = 0 protection, a console reset. Unlike the cart file here,
-the EverDrive's memory is probably not kept without power: only bank 31 goes to its SD card.
+**What the console settled (25 Oct 2026, CD32X BootCamp `edw0`, `edsave`, the cartridge boot), and
+ares models since this build:**
+- With W = 1, a 68000 write to anything but the cart (work RAM, the VDP, the Sega CD) disturbs the cart
+  while an SH2 reads it: the read comes back 0 and the word changes. ares: an SH2 cart read within 1 µs
+  of such a write returns 0 and takes the 68000's data (deterministic, not exact). A launcher that leaves
+  W on fails in ares as on the console; the one that turns W on only inside its copies boots.
+- With the 32X on, the 68000 cannot write cart `0x000100`-`0x07FFFF` directly: ares drops it (a copy goes
+  through another window with that bank mapped in).
+- The C bit changes nothing on the console. The "RAM cart" use above is kept for discs booted the normal
+  way with another cart.
+- Bank 31 is the EverDrive's battery RAM, kept on its SD card as `bram.srm` (256 KB) when the ROM's
+  header declares save RAM (ares: the `.ram` file). Banks 0-29 are PSRAM and the EverDrive menu wipes
+  them at every run; ares keeps the 16 MB in the cart file instead (a choice).
+- Still a choice in ares: byte writes to the registers, a console reset.
 
 ## Use (Android)
 
