@@ -49,6 +49,11 @@ struct Mega32X : Interface {
     }
 
     if(m32x.dreq.vram) {
+      //with the 32X on, the 68000 cannot write the first 512 KB of the cartridge (0x000100-0x07ffff)
+      //directly: console, 25 Oct 2026 (Mega EverDrive PRO, CD32X BootCamp EDCD.32X) - nothing landed
+      //there until the copy went through another window with that bank mapped in.  The other windows
+      //(0x080000-0x3fffff) and the cartridge at 0x400000 (a Mega CD booted its disc) take writes.
+      if(address <= 0x07ffff) return;
       return board->write(upper, lower, address, data);
     }
   }

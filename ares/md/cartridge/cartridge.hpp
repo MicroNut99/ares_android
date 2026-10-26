@@ -26,6 +26,7 @@ struct Cartridge : Thread {
 
   auto readIO(n1 upper, n1 lower, n24 address, n16 data) -> n16;
   auto writeIO(n1 upper, n1 lower, n24 address, n16 data) -> void;
+  auto disturb(n24 address, n16 data) -> void { if(child) child->disturb(address, data); }
 
   auto vblank(bool line) -> void;
   auto hblank(bool line) -> void;

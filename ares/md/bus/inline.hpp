@@ -76,6 +76,7 @@ alwaysinline auto Bus::write(n1 upper, n1 lower, n24 address, n16 data) -> void 
     if(cartridge.bootable()) {
       cartridge.write(upper, lower, address, data);
     } else {
+      cartridge.disturb(address, data);
       mcd.writeExternal(upper, lower, address, data);
     }
     return;
@@ -86,6 +87,7 @@ alwaysinline auto Bus::write(n1 upper, n1 lower, n24 address, n16 data) -> void 
     if(!cartridge.bootable() || !MegaCD()) {
       cartridge.write(upper, lower, address, data);
     } else {
+      cartridge.disturb(address, data);
       mcd.writeExternal(upper, lower, address, data);
     }
     return;
@@ -95,6 +97,7 @@ alwaysinline auto Bus::write(n1 upper, n1 lower, n24 address, n16 data) -> void 
     if(!Mega32X()) {
       cartridge.write(upper, lower, address, data);
     } else {
+      if(address < 0x900000) cartridge.disturb(address, data);  //0x900000-0x9fffff: the cartridge's own window
       m32x.writeExternal(upper, lower, address, data);
     }
     return;
@@ -103,12 +106,14 @@ alwaysinline auto Bus::write(n1 upper, n1 lower, n24 address, n16 data) -> void 
   if(address >= 0xa00000 && address <= 0xa0ffff) {
     if(!apu.busgrantedCPU()) return;
     if(cpu.active()) cpu.wait(1); // wait cycle for cpu->apu bus access (prevents Pac-Man 2 audio driver crash)
+    cartridge.disturb(address, data);
     address.bit(15) = 0;  //a08000-a0ffff mirrors a00000-a07fff
     //word writes store the upper input byte into the lower output byte
     return apu.write(address | !upper, data.byte(upper));  //upper==0 only on odd byte reads
   }
 
   if(address >= 0xa10000 && address <= 0xbfffff) {
+    if(address < 0xa13000 || address > 0xa130ff) cartridge.disturb(address, data);  //not the cartridge's /TIME registers
     cartridge.writeIO(upper, lower, address, data);
     mcd.writeExternalIO(upper, lower, address, data);
     cpu.writeIO(upper, lower, address, data);
@@ -119,11 +124,13 @@ alwaysinline auto Bus::write(n1 upper, n1 lower, n24 address, n16 data) -> void 
     if(address.bit(5,7)) return;  //should deadlock the machine
     if(address.bit(16,18)) return;  //should deadlock the machine
     address.bit(8,20) = 0;  //mirrors
+    cartridge.disturb(address, data);
     return vdp.write(upper, lower, address, data);
   }
 
   if(address >= 0xe00000 && address <= 0xffffff) {
     waitRefreshRAM();
+    cartridge.disturb(address, data);
     if(upper) cpu.ram[address >> 1].byte(1) = data.byte(1);
     if(lower) cpu.ram[address >> 1].byte(0) = data.byte(0);
     return;

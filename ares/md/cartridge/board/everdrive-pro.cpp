@@ -7,17 +7,23 @@
 //  - CTRL1-7 put a bank (1-27 tested) into each window of cart 0x080000-0x3fffff;
 //  - the 68000 writes the banks (RV = 1) and reads back what it wrote after all the other banks
 //    were switched in and out; both SH2s read the same data at 0x22000000 + the window's offset.
-//Checked on a console, 25 Oct 2026 (CD32X BootCamp edw0 and the cartridge boot), and NOT modelled here:
-//  - with W = 1, some of the 68000's writes to OTHER addresses (work RAM, the VDP, the Sega CD's gate
-//    array) land in the cart and change its contents, and the SH2's reads of the cart come back as
-//    zeros at that moment; with W = 0 the SH2 reads it perfectly through anything the 68000 does.
-//    A game's 68000 writes all the time, so a cartridge boot must keep W off except inside a copy
-//    into the cart (the SH2 held off it with RV = 1).  This board takes every write as a clean one and
-//    never disturbs a read, so a launcher that forgets that rule passes here and fails on the console.
+//Checked on a console, 25 Oct 2026 (CD32X BootCamp edw0 and the cartridge boot), and modelled here:
+//  - with W = 1, a 68000 write to anything but the cart (work RAM, the VDP, the Sega CD's gate array)
+//    disturbs the cart while an SH2 reads it: the SH2's reads come back as zeros at that moment, and
+//    words change (edw0: 32d6 read back as 32d5 after a run of 68000 writes).  With W = 0 the SH2
+//    reads it perfectly through anything the 68000 does, a change of W itself does no harm, and the
+//    68000's own writes with W = 1 are clean while the SH2s stay off the cart (the cartridge boot's
+//    copies, with one stack push inside the W = 1 window, work).  Model (disturb(), from the 68000
+//    bus): an SH2 read of the cart within 1 us of such a write returns 0 and the word takes the
+//    68000's data.  Not seen on the console: the exact overlap, which word changes - the model is
+//    deterministic, not exact.  A launcher that leaves W on fails here as on the console.
 //  - the 68000 cannot write window 0 (cart 0x000000-0x07ffff) directly with the 32X on: a copy there
-//    goes through another window with window 0's bank mapped in.  Here the write lands either way
-//    (only 0x000000-0x0000ff goes to the 32X, as on the console).
+//    goes through another window with window 0's bank mapped in (mega-32x.cpp drops the direct write;
+//    0x000000-0x0000ff goes to the 32X, as on the console).
 //  - W = 0 does write-protect the memory (the probe's pattern was never changed with W off).
+//krikzz's own SSF mapper source (github.com/krikzz/MEGA-PRO, fpga/mapper/map_ssf): banks 0-15 and
+//16-30 are the two 8 MB PSRAM chips, bank 31 is the backup memory the OS keeps on the SD card
+//(a .srm for a ROM whose header declares save RAM); CTRL0 bit 11 #CART, 12 LED, 13 W, 14 X.
 //Not checked on a console, so the choices below are guesses: banks 28-31, the C (#CART) and L (LED)
 //bits, byte writes to the registers, the state after a console reset, and whether the memory keeps
 //its contents across power-off.
@@ -57,6 +63,13 @@ struct EverDrivePro : Interface {
   boolean ramCart;               //"ram.cart" holds all 16 MB
   boolean cdBoot;                //RAM cart use: starts as a launcher left it
   std::vector<u8> program;       //the ROM booted at power-on (cartridge and launcher use)
+  //the W = 1 disturbance: when an SH2 read the cart last, and the burst of 68000 writes elsewhere
+  u32 sh2Word = 0;               //the word an SH2 read last
+  u64 sh2Clock = 0;              //when (Thread::clock units, the same on every thread)
+  u64 distFirst = 0, distLast = 0;  //the current burst of disturbing writes (gaps under Window)
+  n16 distData = 0;              //the last such write's data
+  static constexpr u64 Window = Thread::Second / 1'000'000;  //1 us: a 68000 bus cycle is 0.5 us
+  static auto near(u64 a, u64 b) -> bool { return (a > b ? a - b : b - a) <= Window; }
 
   static constexpr u32 SaveBank = 31;
 
@@ -121,7 +134,17 @@ struct EverDrivePro : Interface {
   }
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
-    return ram[offset(address) >> 1];
+    u32 word = offset(address) >> 1;
+    if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
+      u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
+      sh2Word = word;
+      sh2Clock = now;
+      if(distLast && now + Window >= distFirst && now <= distLast + Window) {  //inside a burst
+        corrupt(word, distData);
+        return 0;
+      }
+    }
+    return ram[word];
   }
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
@@ -131,6 +154,23 @@ struct EverDrivePro : Interface {
     if(lower) ram[word].byte(0) = data.byte(0);
     u32 local = (n22)address;
     invalidate(local & ~1u, 2);
+  }
+
+  auto corrupt(u32 word, n16 data) -> void {
+    if(ram[word] == data) return;
+    ram[word] = data;
+    for(u32 n : range(8)) if(bank[n] == word >> 18) invalidate(n << 19 | (word << 1 & 0x7ffff), 2);
+  }
+
+  //a 68000 write that went elsewhere (RAM, the VDP, the Mega CD, the 32X) while W = 1: see the top
+  auto disturb(n24 address, n16 data) -> void override {
+    if(!writeEnable || writeProtect) return;
+    if(!Mega32X() || !m32x.io.adapterEnable) return;  //seen with the 32X on; without it: not measured
+    u64 now = cpu.clock();
+    if(!distLast || !near(now, distLast)) distFirst = now;
+    distLast = now;
+    distData = data;
+    if(sh2Clock && near(now, sh2Clock)) corrupt(sh2Word, data);  //the SH2 was on the cart just now
   }
 
   auto readIO(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
@@ -203,6 +243,11 @@ struct EverDrivePro : Interface {
     s(writeEnable);
     s(led);
     s(cartOff);
+    s(sh2Word);
+    s(sh2Clock);
+    s(distFirst);
+    s(distLast);
+    s(distData);
     if(s.reading()) cartridge->cartOff = cartOff;
   }
 };
