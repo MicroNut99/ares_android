@@ -245,6 +245,10 @@ struct SH2 {
     AddressErrorDMA = 1 << 3,
   };
   u32 exceptions = 0;  //delayed exception flags
+  //CPU and DMA address errors (a word or long access at an address not a multiple of its size, ...)
+  //at run time: on in the interpreter (md/system/system.cpp: the console stops on them - an odd
+  //word access is a red screen there, OpenJazz 27 Oct 2026 - where ares let them through)
+  bool addressErrors = false;
 
   s32 cyclesUntilRecompilerExit = 0;
   s32 recompilerStepCycles = 0;

@@ -73,6 +73,11 @@ ares models since this build:**
   (`--ramcart-boot`, or the GUI's EverDrive launcher) fills banks 0-29 with the pattern before it puts the
   launcher in, at power-on and at a reset, so every start loads the whole game again, as on the console.
   Bank 31 (the save RAM) is kept.
+- **An SH2 word or long access at an address that is not a multiple of its size stops the console** (a
+  CPU address error: OpenJazz's red screen, 27 Oct 2026, from a sun drawn with an odd word read). ares let
+  it through. Now the interpreter (`--interpreter`) takes the SH2's address errors as the console does
+  (the core had them, compiled out); the recompiler still lets them through. `ARES_SH2_ADDRESS_ERRORS=0`
+  turns them off.
 - Still a choice in ares: byte writes to the registers, a console reset.
 
 ## Use (Android)

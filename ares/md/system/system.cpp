@@ -39,6 +39,12 @@ auto option(string name, string value) -> bool {
       m32x.shm.recompiler.enabled = value.boolean();
       m32x.shs.recompiler.enabled = value.boolean();
     }
+    //the SH2s' address errors: in the interpreter, as on the console (ARES_SH2_ADDRESS_ERRORS=0: off).
+    //The recompiler's blocks do not take them, so they stay off with it.
+    auto env = getenv("ARES_SH2_ADDRESS_ERRORS");
+    bool errors = !m32x.shm.recompiler.enabled && !(env && env[0] == '0');
+    m32x.shm.addressErrors = errors;
+    m32x.shs.addressErrors = errors;
   }
   if(name == "TMSS") {
     system.tmss = value.boolean();

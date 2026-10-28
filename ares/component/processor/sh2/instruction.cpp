@@ -17,7 +17,7 @@ auto SH2::instruction() -> void {
   if(Accuracy::Interpreter || !recompiler.enabled) {
     step(1);
     exceptionHandler();
-    if constexpr(Accuracy::AddressErrors) {
+    if(Accuracy::AddressErrors || addressErrors) {
       if(unlikely(PC & 1)) return addressErrorCPU();
       if(unlikely(PC >> 29 == Area::IO)) return addressErrorCPU();
     }

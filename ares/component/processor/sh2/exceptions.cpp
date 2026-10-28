@@ -14,7 +14,7 @@ auto SH2::exceptionHandler() -> void {
     SP = busReadLong(0x03 * 4);
   }
 
-  if constexpr(Accuracy::AddressErrors) {
+  if(Accuracy::AddressErrors || addressErrors) {
     if(exceptions & AddressErrorCPU) {
       exceptions &= ~AddressErrorCPU;
       addressErrorCPU();

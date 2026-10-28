@@ -807,7 +807,7 @@ auto SH2::SWAPW(u32 m, u32 n) -> void {
 
 //TAS.B @Rn
 auto SH2::TAS(u32 n) -> void {
-  if constexpr(Accuracy::AddressErrors) {
+  if(Accuracy::AddressErrors || addressErrors) {
     if(R[n] >> 29 == Area::Purge
     || R[n] >> 29 == Area::Address
     || R[n] >> 29 == Area::Data

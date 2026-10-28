@@ -25,7 +25,7 @@ auto SH2::DMAC::transfer(bool c) -> void {
     self->writeByte<Bus::Internal>(dar[c], self->readByte<Bus::Internal>(sar[c]));
     break;
   case 1:  //16-bit
-    if constexpr(Accuracy::AddressErrors) {
+    if(Accuracy::AddressErrors || self->addressErrors) {
       if(unlikely(dar[c] & 1 || sar[c] & 1)) {
         self->exceptions |= AddressErrorDMA;
         break;
@@ -34,7 +34,7 @@ auto SH2::DMAC::transfer(bool c) -> void {
     self->writeWord<Bus::Internal>(dar[c], self->readWord<Bus::Internal>(sar[c]));
     break;
   case 2:  //32-bit
-    if constexpr(Accuracy::AddressErrors) {
+    if(Accuracy::AddressErrors || self->addressErrors) {
       if(unlikely(dar[c] & 3 || sar[c] & 3)) {
         self->exceptions |= AddressErrorDMA;
         break;
@@ -43,7 +43,7 @@ auto SH2::DMAC::transfer(bool c) -> void {
     self->writeLong<Bus::Internal>(dar[c], self->readLong<Bus::Internal>(sar[c]));
     break;
   case 3:  //32-bit x4
-    if constexpr(Accuracy::AddressErrors) {
+    if(Accuracy::AddressErrors || self->addressErrors) {
       if(unlikely(dar[c] & 3 || sar[c] & 3)) {
         self->exceptions |= AddressErrorDMA;
         break;

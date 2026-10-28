@@ -20,7 +20,7 @@ template<u32 Origin> auto SH2::readByte(u32 address) -> u32 {
   }
 
   case Area::IO: {
-    if constexpr(Accuracy::AddressErrors) {
+    if(Accuracy::AddressErrors || addressErrors) {
       if(unlikely(address >= 0xffff'ff00 && address <= 0xffff'ffff)) {
         return exceptions |= AddressErrorCPU, 0;
       }
@@ -34,7 +34,7 @@ template<u32 Origin> auto SH2::readByte(u32 address) -> u32 {
 }
 
 template<u32 Origin> auto SH2::readWord(u32 address) -> u32 {
-  if constexpr(Accuracy::AddressErrors) {
+  if(Accuracy::AddressErrors || addressErrors) {
     if(unlikely(address & 1)) return exceptions |= AddressErrorCPU, 0;
   }
 
@@ -71,7 +71,7 @@ template<u32 Origin> auto SH2::readWord(u32 address) -> u32 {
 }
 
 template<u32 Origin> auto SH2::readLong(u32 address) -> u32 {
-  if constexpr(Accuracy::AddressErrors) {
+  if(Accuracy::AddressErrors || addressErrors) {
     if(unlikely(address & 3)) return exceptions |= AddressErrorCPU, 0;
   }
 
@@ -103,7 +103,7 @@ template<u32 Origin> auto SH2::readLong(u32 address) -> u32 {
   }
 
   case Area::IO: {
-    if constexpr(Accuracy::AddressErrors) {
+    if(Accuracy::AddressErrors || addressErrors) {
       if(unlikely(address >= 0xffff'fe00 && address <= 0xffff'feff)) {
         return exceptions |= AddressErrorCPU, 0;
       }
@@ -156,7 +156,7 @@ template<u32 Origin> auto SH2::writeByte(u32 address, u32 data) -> void {
   }
 
   case Area::IO: {
-    if constexpr(Accuracy::AddressErrors) {
+    if(Accuracy::AddressErrors || addressErrors) {
       if(unlikely(address >= 0xffff'ff00 && address <= 0xffff'ffff)) {
         return (void)(exceptions |= AddressErrorCPU);
       }
@@ -168,7 +168,7 @@ template<u32 Origin> auto SH2::writeByte(u32 address, u32 data) -> void {
 }
 
 template<u32 Origin> auto SH2::writeWord(u32 address, u32 data) -> void {
-  if constexpr(Accuracy::AddressErrors) {
+  if(Accuracy::AddressErrors || addressErrors) {
     if(unlikely(address & 1)) return (void)(exceptions |= AddressErrorCPU);
   }
 
@@ -214,7 +214,7 @@ template<u32 Origin> auto SH2::writeWord(u32 address, u32 data) -> void {
 }
 
 template<u32 Origin> auto SH2::writeLong(u32 address, u32 data) -> void {
-  if constexpr(Accuracy::AddressErrors) {
+  if(Accuracy::AddressErrors || addressErrors) {
     if(unlikely(address & 3)) return (void)(exceptions |= AddressErrorCPU);
   }
 
@@ -258,7 +258,7 @@ template<u32 Origin> auto SH2::writeLong(u32 address, u32 data) -> void {
   }
 
   case Area::IO: {
-    if constexpr(Accuracy::AddressErrors) {
+    if(Accuracy::AddressErrors || addressErrors) {
       if(unlikely(address >= 0xffff'fe00 && address <= 0xffff'feff)) {
         return (void)(exceptions |= AddressErrorCPU);
       }
