@@ -119,6 +119,106 @@ Sega CD + 32X **cartridge** games with CD audio (Sonic 32X Plus, OpenTyrian + Se
 load with **Load → Sega → Mega 32X**; when the cart's header lists the CD, ares asks for
 the `.cue` too.
 
+## Console timing: the 32X hardware matching mode (in progress)
+
+**Goal:** a setting that makes ares run CD32X games at the console's speed, so a game can be
+profiled and tuned in ares instead of burning a disc for every test. It will be one switch, **off by
+default** (ares as released keeps upstream's timing): `ARES_32X_TIMING=console`, and the same in the
+desktop app's Settings.
+
+**Status, 28 Oct 2026:**
+- The timing probe disc is built and runs in ares; its console readings are the next step (below).
+- The timing model exists on two branches of this repository, written on 20 Oct 2026 and not yet
+  in `main`:
+  - `cd32x-bus-jh`: the costs of cart, frame buffer and SDRAM accesses, the VDP's 4-word write
+    FIFO, the two SH2s waiting for each other on the shared bus, cache line fills, and access
+    counters (`ares-headless --stats`, `--profile`);
+  - `cd32x-timing`: the SH2's real instruction timings (branches, BT/BF taken, multiplies, TAS,
+    load-use and MAC stalls) in the interpreter and the recompiler.
+- They get merged into one model, set from the probe's console numbers, then checked against the
+  game readings below.
+
+### Why the probe: the 32X's bus arbitration is not fully documented
+
+Sega's 32X hardware manual gives ranges, not the arbitration itself: how the two SH2s, the 68000 and
+the VDP share the bus and the frame buffer, and what one costs the other. Those timings come from
+**our own measurements on the console, which are not published anywhere else.**
+
+Tuning ares to games' frame rates alone did not work. Jazz's open sky and its caves make the same
+memory accesses per picture in ares (counted), yet run at 10 and 18-20 fps on the console. A frame
+rate mixes too many costs. The probe measures each cost by itself instead.
+
+### The data used
+
+**Console readings of the games** (the owner's console, NTSC Sega CD + 32X, RAM cart or EverDrive):
+
+| Game, build | Place | Console | ares as released |
+|---|---|---|---|
+| Jazz Jackrabbit, R5 16 MB, profiler build | Diamondus 1, start (sky, sun) | **10 fps or less** (video, 19 Oct 2026) | 29 fps |
+| Jazz, R5 | Diamondus 1, purple cave | **18-20 fps** (video, 19 Oct) | 23 fps |
+| Jazz, R5 | Diamondus 1, open, foreground grass | **10 fps** (video, 19 Oct) | 19 fps |
+| Jazz, R5 | Diamondus 2, level-end tally (camera still) | **10 fps** (video, 19 Oct) | - |
+| Jazz, REV EverDrive | Diamondus 1, in front of the giant waterfalls | **3-5 fps** (video, 27 Oct) | - |
+| Hurrican, P1 | stage 1, timing line on | **19.9 fps**: AI 6, MAP 0, CPY 3, SPR 2, OVR 1, HUD 1, WAIT 30 ms (photo) | 29.9-30 fps: HUD 12-15, WAIT 6-10 |
+| OpenLara, v1.4 | Caves | **frame 64-110 ms**, drawing 43-103 ms | frame 41 ms |
+
+The Jazz counter could not show less than 10 then, so "10" means "10 or less".
+
+**The manuals:**
+- Sega 32X hardware manual: cart reads 6-15 wait states on a 2-clock bus cycle; frame buffer reads
+  5-12 waits, writes 1-3 through the VDP's 4-word FIFO (3 clocks a word, 5 when full).
+- Hitachi SH7604 (SH-2) manual: the instruction timings.
+
+**ares's own counts** for the same scenes (`cd32x-bus-jh`, `--stats`): per picture, Jazz makes
+about 26,000-31,000 cart reads, 12,000-14,000 frame buffer writes and 53,000-56,000 SDRAM writes.
+With the Genesis plane on, the idle slave SH2 also made about 460,000 SDRAM reads per picture.
+Jazz R7 and Hurrican P2b no longer do that.
+
+**The timing probe** (CD32X BootCamp, `probe/`): one screen of numbers measured by the master
+SH2's own free-running timer. It covers:
+- each instruction kind;
+- cart, SDRAM, frame buffer and overwrite reads and writes;
+- cache hits and line fills;
+- 32X registers;
+- the frame buffer in the blank and in the picture;
+- the VDP fill;
+- the frame and line length;
+- a Sega CD command's round trip;
+- the shared bus: each SH2 access while the other SH2 hammers each memory.
+
+| Probe line (clocks an access) | ares as released | Console, RAM cart | Console, EverDrive |
+|---|---|---|---|
+| NOP / MUL.L / BRA+NOP | 1.0 / 1.0 / 2.0 | awaiting the photo | awaiting the photo |
+| CART RD.W / RD.L / LINE | 7.0 / 13.0 / 60.1 | | |
+| SDRM RD.W / WR.W / LINE | 1.0 / 1.0 / 13.1 | | |
+| FB RD.W / WR.W / WR.L | 6.0 / 5.0 / 9.0 | | |
+| FILL256 (clocks) | 384 / 400 | | |
+| FRAME / LINE (clocks) | 384,000 / 1,465 | | |
+| CD CMD (clocks) | 71,112 (EverDrive: 9,128) | | |
+| cart read, slave idle / slave reading the cart | 7.0 / 7.0 (no contention) | | |
+
+### Build commands
+
+The probe disc (in the CD32X BootCamp folder; `EDCD=1` also makes the EverDrive launcher, and the
+disc boots both ways):
+```sh
+cd /mnt/s/KoboPort/sega-toolchain-12.1/sega/CD32X-BootCamp
+GAME=probe DISC_NAME=CD32X_PROBE_V1 EDCD=1 bash build.sh 2>&1 | tee build_log.txt
+```
+Burn `disc/CD32X_PROBE_V1.cue`. For the EverDrive, copy `edboot/EDCD.32X` to the SD card as
+`EDCD_PROBE_V1.32X`. Boot it, wait about two seconds and photograph the screen; **A** measures
+again.
+
+The same disc in `ares-headless` (built as in "Building" below):
+```sh
+ares-headless --game CD32X_PROBE_V1.cue --machine cd32x --bios-us us.bin \
+  --ramcart probe4.ram --ramcart-size 4 --frames 2410 --screenshot 2400:probe.ppm
+ares-headless --game CD32X_PROBE_V1.cue --machine cd32x --bios-us us.bin \
+  --ramcart-type everdrive --ramcart-boot EDCD_PROBE_V1.32X --frames 2410 --screenshot 2400:probe_ed.ppm
+```
+Once the model is merged, the same runs with `ARES_32X_TIMING=console` in front give its numbers.
+The model is right when they match the console's.
+
 ## Building
 
 Three things build from this repository. Nothing about the RAM cart is chosen at build time:
