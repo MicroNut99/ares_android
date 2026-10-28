@@ -26,11 +26,14 @@ auto SH2::Cache::read(u32 address) -> u32 {
   auto index = way << 6 | entry;
   lrus[entry] = lruUpdate[way][lru];
   tags[index] = tag;  //marks line as valid
+  self->inFill = true;
   lines[index].longs[0] = bswap32(self->busReadLong(address & 0x1fff'fff0 | 0x0));
   lines[index].longs[1] = bswap32(self->busReadLong(address & 0x1fff'fff0 | 0x4));
   lines[index].longs[2] = bswap32(self->busReadLong(address & 0x1fff'fff0 | 0x8));
   lines[index].longs[3] = bswap32(self->busReadLong(address & 0x1fff'fff0 | 0xc));
-  self->step(12);
+  self->inFill = false;
+  { u32 c = self->lineFillCost(address); self->step(c); self->profAdd(c); }
+  self->fills[address >> 24 & 7]++;
   return read(lines[index]);
 }
 

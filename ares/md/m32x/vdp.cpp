@@ -96,6 +96,7 @@ auto M32X::VDP::selectFramebuffer(n1 select) -> void {
   framebufferSelect = select;
   if(!vblank && latch.mode) return;
 
+  if(framebufferActive != select) m32x.stats.swaps++;
   framebufferActive = select;
   fbram = {dram.data() + 0x10000 * (select == 0), 0x10000};
   bbram = {dram.data() + 0x10000 * (select == 1), 0x10000};

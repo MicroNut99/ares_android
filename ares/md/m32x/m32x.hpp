@@ -40,7 +40,7 @@ struct M32X {
     auto instructionPrologue(u16 instruction) -> void override;
     auto step(u32 clocks) -> void override;
     auto internalStep(u32 clocks) -> void;
-    auto power(bool reset) -> void;
+  auto power(bool reset) -> void;
     auto restart() -> void;
     auto syncAll(bool force = false) -> void;
     auto syncOtherSh2(bool force = false) -> void;
@@ -52,6 +52,13 @@ struct M32X {
     auto busWriteByte(u32 address, u32 data) -> void override;
     auto busWriteWord(u32 address, u32 data) -> void override;
     auto busWriteLong(u32 address, u32 data) -> void override;
+    auto lineFillCost(u32 address) -> u32 override;
+
+    //cd32x-timing: this SH2's share of the shared bus lately
+    u64 uStart = 0, uBusy = 0, uCount = 0;
+    u64 total = 0;        //clocks stepped since power-on (monotonic; the scheduler rebases clock())
+    u32 util256 = 0;      //busy fraction x 256
+    u32 tenure16 = 16;    //mean bus tenure x 16
 
     //serialization.cpp
     auto serialize(serializer&) -> void;
@@ -182,6 +189,7 @@ struct M32X {
   auto unload() -> void;
   auto save() -> void;
 
+  auto commLog(u32 index, char who) -> void;
   auto power(bool reset) -> void;
 
   auto vblank(bool) -> void;
@@ -246,6 +254,42 @@ struct M32X {
   } dreq;
 
   n16 communication[8];
+
+  //CD32X timing work (ares_android, cd32x-timing): what the SH2s do to the 32X's memories, for
+  //comparing a game's frame cost in ares with the console. Counted, not serialized.
+  struct Stats {
+    u64 cartRead = 0;      //16-bit SH2 reads of the cart (0x02 / 0x22 area)
+    u64 fbRead = 0;        //16-bit SH2 frame buffer reads
+    u64 fbWrite = 0;       //16-bit SH2 frame buffer writes / overwrites
+    u64 sdramRead = 0;     //16-bit SH2 SDRAM bus reads (uncached reads and cache line fills)
+    u64 sdramWrite = 0;    //16-bit SH2 SDRAM writes
+    u64 swaps = 0;         //frame buffer swaps actually shown (a new 32X picture)
+  } stats;
+
+  //SH2 memory costs, in SH2 clocks per 16-bit access. Upstream's values are the defaults; the
+  //environment variable ARES_32X_TIMING (e.g. "cart=8,fbw=1,fifo=4,drain=3") replaces them.
+  struct Timing {
+    u32 cartRead = 6;
+    u32 fbRead = 5;
+    u32 fbWrite = 4;      //each frame buffer write, plus any FIFO stall
+    u32 fifoDepth = 0;    //0: no FIFO model (upstream)
+    u32 fifoDrain = 0;    //SH2 clocks the VDP takes to retire one FIFO word
+    u32 sdramRead = 0;
+    u32 sdramWrite = 0;
+    u32 insn = 0;         //extra SH2 clocks per 16 recompiled instructions (pipeline stalls, fetches)
+    u32 io = 1;           //32X register access (upstream: 1)
+    u32 fill = 12;        //SDRAM cache line fill (burst), the whole line
+    u32 cfill = 12;       //added to a line fill from elsewhere (cart: its 8 reads are charged too)
+    u32 contention = 0;   //1: an SH2 waits while the other one holds the shared bus
+    u32 arb = 0;          //clocks to hand the bus over to the other SH2
+    u64 fifoEnd = 0;      //the time the FIFO is empty, in SH2 clocks
+  } timing;
+  auto loadTiming() -> void;
+  auto sh2Now() -> u64;
+  auto fbWriteCost() -> u32;
+  auto busCharge(u32 clocks) -> void;
+  auto busStall(M32X::SH7604& self, M32X::SH7604& other) -> u32;
+  auto busAccount(M32X::SH7604& self, u32 clocks) -> void;
 };
 
 extern M32X m32x;

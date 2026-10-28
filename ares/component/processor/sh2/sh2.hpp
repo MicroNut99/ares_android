@@ -1,3 +1,4 @@
+#include <unordered_map>
 #pragma once
 
 #include <nall/recompiler/generic/generic.hpp>
@@ -257,6 +258,30 @@ struct SH2 {
     return instructionPrologue(instruction);  //virtual function call
   }
 
+  //ares_android cd32x-timing: the recompiler does not fetch its instructions through the cache.
+  //With fetchModel set, each recompiled block reads the cache lines it spans when it runs (a miss
+  //costs a line fill, as in the interpreter), and insnExtra16 adds clocks per 16 instructions.
+  static inline u32 fetchModel = 0;
+  static inline u32 insnExtra16 = 0;
+  //and with profileOn, the SH2 clocks each block costs (its instructions, its memory waits)
+  static inline u32 profileOn = 0;
+  u32 profBlock = 0;
+  u64 fills[8] = {};
+  bool inFill = false;
+  virtual auto lineFillCost(u32 address) -> u32 { return 12; }  //cache line fills by area (address bits 24-26: 0 boot ROM, 2 cart, 4 frame buffer, 6 SDRAM)
+  std::unordered_map<u32, u64> profile;
+  auto profAdd(u32 clocks) -> void { if(profileOn) profile[profBlock] += clocks; }
+  auto fetchTrampoline(u32 address, u32 size) -> void {
+    profBlock = address;
+    profAdd(size / 2);
+    if((address >> 29) == 0) {  //cached area: one read per line, through the cache
+      for(u32 line = address & ~15u; line < address + size; line += 16) readLong(line);
+    } else {                    //uncached: every word
+      for(u32 a = address; a < address + size; a += 2) readWord(a);
+    }
+    if(insnExtra16) regs.CCR += (size / 2 * insnExtra16) >> 4;
+  }
+
   struct Recompiler : recompiler::generic {
     SH2& self;
     Recompiler(SH2& self) : self(self), generic(allocator) {}
@@ -311,6 +336,7 @@ struct SH2 {
 
     bool enabled = false;
     bool callInstructionPrologue = false;
+    u32 emitSize = 0;
     bool inDelaySlot;
     u32 generation;
     bump_allocator allocator;
