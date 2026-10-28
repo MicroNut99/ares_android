@@ -1,4 +1,6 @@
 #include <md/md.hpp>
+#include <set>
+#include <cstdlib>
 
 namespace ares::MegaDrive {
 

@@ -15,10 +15,23 @@
 //    68000's own writes with W = 1 are clean while the SH2s stay off the cart (the cartridge boot's
 //    copies, with one stack push inside the W = 1 window, work).  Model (disturb(), from the 68000
 //    bus): an SH2 read of the cart within 1 us of such a write returns 0 and the word takes the
-//    68000's data.  With RV = 1 the 32X holds the SH2s off the cart, so a 68000 write then (the
-//    cartridge boot's copies push once inside their W = 1 window) disturbs nothing.  Not seen on the
-//    console: the exact overlap, which word changes - the model is deterministic, not exact.  A
-//    launcher that leaves W on fails here as on the console.
+//    68000's data.  A 68000 write with RV = 1 disturbs nothing here: an SH2 cart read then is garbage
+//    anyway (next point).  Not seen on the console: the exact overlap, which word changes - the model is
+//    deterministic, not exact.  A launcher that leaves W on fails here as on the console.
+//Checked on a console, 26 Oct 2026 (CD32X BootCamp edsave3), and modelled here (answersDuringRV(),
+//m32x/bus-internal.cpp):
+//  - the EverDrive does NOT hold an SH2 off the cart while the 68000 holds RV = 1, as a real cartridge
+//    is held (the 32X stalls its read until RV = 0): it answers, with garbage.  The probe: the slave
+//    read window 4 nonstop and the master window 2 between its polls while the 68000 copied 64 x 4 KB
+//    blocks with RV = 1 - 965,207 bad of 978K reads, coming back about four times faster than real
+//    ones; with the 68000 idle 0 bad of 393K, with RV = 0 4.  OpenLara's passport froze on it (the
+//    master SH2 ran garbage it had fetched from the cart during a save).  ares: such a read returns
+//    a pseudo-random word (from the address and the SH2's clock: the same in every run) after about a
+//    quarter of a cart read's time.  Off with ARES_RV_GARBAGE=0; ARES_RV_LOG=1 prints who read.
+//  - the EverDrive menu wipes the PSRAM (banks 0-29) every time it runs (edsave, three runs: markers
+//    in banks 0 and 7 gone at every start; bank 31, the battery RAM, kept).  ares: a launcher boot
+//    (program.rom) fills banks 0-29 with the pattern before it puts the launcher in, at power-on and
+//    at a reset, so every start loads everything again, as on the console.
 //  - the 68000 cannot write window 0 (cart 0x000000-0x07ffff) directly with the 32X on: a copy there
 //    goes through another window with window 0's bank mapped in (mega-32x.cpp drops the direct write;
 //    0x000000-0x0000ff goes to the 32X, as on the console).
@@ -96,6 +109,7 @@ struct EverDrivePro : Interface {
     if(auto fp = pak->read("program.rom")) {
       program.resize(min((u32)fp->size(), (u32)16_MiB));
       fp->read({program.data(), program.size()});
+      if(ramCart) wipePSRAM();  //a launcher: the EverDrive menu ran before it
       putProgram();
     }
 
@@ -119,6 +133,13 @@ struct EverDrivePro : Interface {
       u32 words = min((u32)(fp->size() >> 1), 0x40000u);
       for(u32 address : range(words)) fp->writem(ram[SaveBank << 18 | address], 2L);
     }
+  }
+
+  auto answersDuringRV() -> bool override { return true; }  //garbage, not held off (see the top)
+
+  //the EverDrive menu wipes the PSRAM (banks 0-29) before it starts a ROM (see the top): the pattern
+  auto wipePSRAM() -> void {
+    for(u32 address : range(30u << 18)) ram.write(address, (n16)(address * 0x9e37 + 0x5a5a));
   }
 
   //the ROM into the start of the memory, as the EverDrive loads a game from its SD card
@@ -235,7 +256,7 @@ struct EverDrivePro : Interface {
     } else {
       writeEnable = 0;
       setCart(0);
-      if(reset && ramCart && !program.empty()) putProgram();  //launcher: started again from the menu
+      if(reset && ramCart && !program.empty()) { wipePSRAM(); putProgram(); }  //launcher: started again from the menu
     }
   }
 

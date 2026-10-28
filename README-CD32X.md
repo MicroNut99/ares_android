@@ -59,7 +59,20 @@ ares models since this build:**
   way with another cart.
 - Bank 31 is the EverDrive's battery RAM, kept on its SD card as `bram.srm` (256 KB) when the ROM's
   header declares save RAM (ares: the `.ram` file). Banks 0-29 are PSRAM and the EverDrive menu wipes
-  them at every run; ares keeps the 16 MB in the cart file instead (a choice).
+  them at every run; ares does too when it boots a launcher (below), otherwise it keeps the 16 MB in the
+  cart file.
+- **An SH2 that reads the cart while the 68000 holds RV = 1 gets garbage** (26 Oct 2026, CD32X BootCamp
+  `edsave3`: 965,207 bad of 978K reads, answered about four times faster than real ones). A real cartridge
+  is held off by the 32X until RV = 0; the EverDrive answers. ares: such a read returns a pseudo-random
+  word (the same in every run), so code or data an SH2 fetches from the cart during a 68000 copy crashes
+  in ares as it does on the console. `ARES_RV_GARBAGE=0` holds the SH2 instead (a real cart's behaviour),
+  `ARES_RV_GARBAGE=1` gives every cart the EverDrive's rule, `ARES_RV_LOG=1` prints which SH2 read where
+  (`RV-CART M pc=... pr=... addr=...`). Use `--interpreter` for it: the recompiler keeps code it has
+  already translated and only sees the reads it has not.
+- **The EverDrive menu wipes banks 0-29 every time it starts a ROM** (edsave). ares: a launcher boot
+  (`--ramcart-boot`, or the GUI's EverDrive launcher) fills banks 0-29 with the pattern before it puts the
+  launcher in, at power-on and at a reset, so every start loads the whole game again, as on the console.
+  Bank 31 (the save RAM) is kept.
 - Still a choice in ares: byte writes to the registers, a console reset.
 
 ## Use (Android)
