@@ -99,6 +99,8 @@ public:
   //32X COMM0-COMM14 (index 0-7), as the 68000 sees them: the CD32X boot stacks post their
   //status in COMM12 (0x4B10 = game running), handy for the log view and the test harness
   uint16_t comm(uint32_t index) const;
+  void cpuState(uint32_t out[4]) const;  //main 68000 pc, sub 68000 pc, mega CD comm flags main / sub
+  void cddState(uint32_t out[4]) const;  //the mega CD drive: status, track, sector, CD audio attenuator
   //cd32x-timing: SH2 accesses since boot: cart reads, frame buffer reads, writes, SDRAM reads, writes, 32X swaps
   void timingStats(uint64_t out[6]) const;
   //cd32x-timing: SH2 clocks per recompiled block (needs fetch=1 in ARES_32X_TIMING)
