@@ -17,6 +17,7 @@ M32X m32x;
 
 auto M32X::load(Node::Object parent) -> void {
   node = parent->append<Node::Object>("Mega 32X");
+  loadTiming();
   sdram.allocate(256_KiB >> 1);
   shm.load(node, "SHM", "sh2.boot.mrom");
   shs.load(node, "SHS", "sh2.boot.srom");
@@ -42,6 +43,14 @@ auto M32X::unload() -> void {
 }
 
 auto M32X::save() -> void {
+}
+
+//harness: ARES_COMM_LOG = mask of COMM words (bit n = COMMn*2): each write printed with the scanline
+auto M32X::commLog(u32 index, char who) -> void {
+  static int mask = -1;
+  if(mask < 0) { auto e = getenv("ARES_COMM_LOG"); mask = e ? (int)strtol(e, nullptr, 0) : 0; }
+  if(!(mask & 1 << index)) return;
+  printf("  c%u %c line %3u %04X\n", index * 2, who, (u32)::ares::MegaDrive::vdp.vcounter(), (u32)communication[index]);
 }
 
 auto M32X::power(bool reset) -> void {

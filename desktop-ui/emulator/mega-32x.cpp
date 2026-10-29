@@ -85,6 +85,7 @@ auto Mega32X::load() -> LoadResult {
   }
 
   ares::MegaDrive::option("Recompiler", !settings.general.forceInterpreter);
+  ares::MegaDrive::option("32X Timing", settings.megadrive.realHardwareTiming ? "console" : "off");
 
   if(!ares::MegaDrive::load(root, {"[Sega] ", name, " (", region, ")"})) return otherError;
 

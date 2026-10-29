@@ -1,5 +1,5 @@
 auto M32X::readInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> n16 {
-  if(shm.active()) shm.internalStep(1); if(shs.active()) shs.internalStep(1);
+  busCharge((address >= 0x4100 && address <= 0x41ff) ? timing.vdpRead : timing.io);
 
   //interrupt mask
   if(address == 0x4000) {
@@ -171,7 +171,7 @@ auto M32X::readInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> n16 {
 }
 
 auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
-  if(shm.active()) shm.internalStep(1); if(shs.active()) shs.internalStep(1);
+  busCharge(timing.ioWrite);
 
   //interrupt mask
   if(address == 0x4000) {
@@ -243,6 +243,7 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
     if(shs.active()) { shs.syncAll(); }
     if(upper) communication[address >> 1 & 7].byte(1) = data.byte(1);
     if(lower) communication[address >> 1 & 7].byte(0) = data.byte(0);
+    commLog(address >> 1 & 7, 'S');
   }
 
   //PWM control

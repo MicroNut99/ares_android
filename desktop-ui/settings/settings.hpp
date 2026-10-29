@@ -132,6 +132,7 @@ struct Settings : Markup::Node {
     u32 ramCartType = 0;              //0 = 16MB-PCB-CD32X (paged), 1 = Mega EverDrive PRO (extended SSF)
     bool ramCartWriteProtect = false;
     string ramCartLauncher;           //EverDrive PRO: a launcher ROM (EDCD.32X) booted from the cart first - the cartridge boot
+    bool realHardwareTiming = false;  //32X: the console's own speed (the timing probe's numbers), not upstream's
   } megadrive;
 };
 

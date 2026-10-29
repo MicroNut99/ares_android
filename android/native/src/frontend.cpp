@@ -468,6 +468,51 @@ bool Session::loadState(const std::string& file) {
   return self->root->unserialize(state);
 }
 
+void Session::timingStats(uint64_t out[6]) const {
+  auto& st = ares::MegaDrive::m32x.stats;
+  out[0] = st.cartRead; out[1] = st.fbRead; out[2] = st.fbWrite;
+  out[3] = st.sdramRead; out[4] = st.sdramWrite; out[5] = st.swaps;
+}
+
+void Session::fillStats(uint64_t out[16]) const {
+  for(int k = 0; k < 8; k++) out[k] = ares::MegaDrive::m32x.shm.fills[k], out[8 + k] = ares::MegaDrive::m32x.shs.fills[k];
+}
+
+uint32_t Session::sdram32(uint32_t address) const {
+  auto& m = ares::MegaDrive::m32x.sdram;
+  uint32_t i = (address & 0x3fffc) >> 1;
+  return (uint32_t)(uint16_t)m[i] << 16 | (uint16_t)m[i + 1];
+}
+
+void Session::profileStart() {
+  ares::MegaDrive::m32x.shm.profile.clear();
+  ares::MegaDrive::m32x.shs.profile.clear();
+  ares::SH2::profileOn = 1;
+}
+
+bool Session::profileWrite(const std::string& file) {
+  FILE* fp = fopen(file.c_str(), "w");
+  if(!fp) return false;
+  for(auto& [a, c] : ares::MegaDrive::m32x.shm.profile) fprintf(fp, "M %08X %llu\n", a, (unsigned long long)c);
+  for(auto& [a, c] : ares::MegaDrive::m32x.shs.profile) fprintf(fp, "S %08X %llu\n", a, (unsigned long long)c);
+  fclose(fp);
+  return true;
+}
+
+void Session::cpuState(uint32_t out[4]) const {
+  out[0] = ares::MegaDrive::cpu.r.pc;
+  out[1] = ares::MegaDrive::mcd.r.pc;
+  out[2] = ares::MegaDrive::mcd.communication.cfm;
+  out[3] = ares::MegaDrive::mcd.communication.cfs;
+}
+
+void Session::cddState(uint32_t out[4]) const {
+  out[0] = (uint32_t)ares::MegaDrive::mcd.cdd.io.status;
+  out[1] = (uint32_t)ares::MegaDrive::mcd.cdd.io.track;
+  out[2] = (uint32_t)ares::MegaDrive::mcd.cdd.io.sector;
+  out[3] = (uint32_t)ares::MegaDrive::mcd.cdd.dac.attenuator;
+}
+
 uint16_t Session::comm(uint32_t index) const {
   if(!self->root || index > 7) return 0;
   return (uint16_t)ares::MegaDrive::m32x.communication[index];
