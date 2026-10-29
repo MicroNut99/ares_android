@@ -87,6 +87,7 @@ int main(int argc, char** argv) {
   uint32_t frames = 600;
   std::map<uint32_t, uint32_t> presses;      //frame -> buttons from that frame on
   std::map<uint32_t, std::string> shots;     //frame -> file
+  std::map<uint32_t, std::string> dumps;     //frame -> file (--dump-sdram)
   std::map<uint32_t, std::string> saves;     //frame -> state file
   std::string loadFile;
   std::string wavFile;
@@ -137,6 +138,9 @@ int main(int argc, char** argv) {
     } else if(a == "--press") {
       auto v = next(); auto c = v.find(':');
       presses[(uint32_t)atoi(v.substr(0, c).c_str())] = parseButtons(v.substr(c + 1));
+    } else if(a == "--dump-sdram") {   //--dump-sdram frame:file - the 32X's 256 KB SDRAM, big-endian
+      auto v = next(); auto c = v.find(':');
+      dumps[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
     } else if(a == "--screenshot") {
       auto v = next(); auto c = v.find(':');
       shots[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
@@ -204,6 +208,17 @@ int main(int argc, char** argv) {
     if(auto it = saves.find(f); it != saves.end()) {
       printf("frame %u: state %s %s\n", f, it->second.c_str(), session.saveState(it->second) ? "saved" : "NOT SAVED");
     }
+    if(auto it = dumps.find(f); it != dumps.end()) {
+      if(FILE* fp = fopen(it->second.c_str(), "wb")) {
+        for(uint32_t a = 0; a < 0x40000; a += 4) {
+          uint32_t v = session.sdram32(0x06000000 + a);
+          uint8_t b[4] = {(uint8_t)(v >> 24), (uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v};
+          fwrite(b, 1, 4, fp);
+        }
+        fclose(fp);
+        printf("frame %u: SDRAM dump %s\n", f, it->second.c_str());
+      }
+    }
     if(auto it = shots.find(f); it != shots.end()) {
       writePPM(it->second, frame);
       printf("frame %u: screenshot %s (%ux%u, aspect %.3f)\n", f, it->second.c_str(), frame.width, frame.height, frame.aspect);
@@ -215,6 +230,12 @@ int main(int argc, char** argv) {
         (f + 1) / 60, frame.width, frame.height,
         session.comm(0), session.comm(1), session.comm(2), session.comm(3), session.comm(4), session.comm(5),
         session.comm(6), session.comm(7), rms);
+      if(getenv("ARES_PC")) {  //the 68000s' program counters and the mega CD's command flags
+        uint32_t c[4]; session.cpuState(c);
+        printf("    68k pc=%06X  sub pc=%06X  mcd flags main=%02X sub=%02X\n", c[0] & 0xffffff, c[1] & 0xffffff, c[2], c[3]);
+        uint32_t d[4]; session.cddState(d);
+        printf("    cdd status=%X track=%u sector=%u cda-attenuator=%04X\n", d[0], d[1], d[2], d[3]);
+      }
       if(stats) {
         uint64_t now[6];
         session.timingStats(now);

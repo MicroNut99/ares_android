@@ -499,6 +499,20 @@ bool Session::profileWrite(const std::string& file) {
   return true;
 }
 
+void Session::cpuState(uint32_t out[4]) const {
+  out[0] = ares::MegaDrive::cpu.r.pc;
+  out[1] = ares::MegaDrive::mcd.r.pc;
+  out[2] = ares::MegaDrive::mcd.communication.cfm;
+  out[3] = ares::MegaDrive::mcd.communication.cfs;
+}
+
+void Session::cddState(uint32_t out[4]) const {
+  out[0] = (uint32_t)ares::MegaDrive::mcd.cdd.io.status;
+  out[1] = (uint32_t)ares::MegaDrive::mcd.cdd.io.track;
+  out[2] = (uint32_t)ares::MegaDrive::mcd.cdd.io.sector;
+  out[3] = (uint32_t)ares::MegaDrive::mcd.cdd.dac.attenuator;
+}
+
 uint16_t Session::comm(uint32_t index) const {
   if(!self->root || index > 7) return 0;
   return (uint16_t)ares::MegaDrive::m32x.communication[index];
