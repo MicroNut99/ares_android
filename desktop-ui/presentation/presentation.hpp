@@ -52,7 +52,6 @@ struct Presentation : Window {
       MenuSeparator groupSettingsSeparator{&settingsMenu};
       MenuCheckItem muteAudioSetting{&settingsMenu};
       MenuCheckItem showStatusBarSetting{&settingsMenu};
-      MenuCheckItem realHardwareTimingSetting{&settingsMenu};
       MenuSeparator audioSettingsSeparator{&settingsMenu};
       MenuItem videoSettingsAction{&settingsMenu};
       MenuItem audioSettingsAction{&settingsMenu};

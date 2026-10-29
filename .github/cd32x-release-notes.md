@@ -1,7 +1,4 @@
-ares CD32X v1.3 - Real Sega 32X Hardware Timing, a menu switch (29 Oct 2026)
-
-- v1.3: **Settings > Real Sega 32X Hardware Timing**: the 32X as the console runs it - its memory and instruction costs as the CD32X timing probe measured them on an NTSC Sega CD + 32X. Off: ares's own (faster) timing, as before. Takes effect at once, also in a running game, and is remembered. A first calibration: not yet checked against every game's console frame rate.
-- ares-headless: the same with ARES_32X_TIMING=console; --stats (frame rate and accesses per picture), --dump-sdram frame:file.
+ares CD32X v1.2 - the Mega EverDrive PRO as the console runs it, with the cartridge boot in the Windows build (25 Oct 2026)
 
 - v1.2: Settings → Options → **EverDrive launcher**: Browse to `EDCD.32X` (cart type Mega EverDrive PRO), load the disc - the cartridge boot as the console does it, in the window, with the pad. The disc's saves (its bank 31) land in the EverDrive cart file.
 - With the EverDrive's write-enable bit on, a 68000 write to anything but the cart disturbs an SH2 read of the cart (the read returns 0, the word changes). A launcher that leaves the bit on fails here as on the console; the CD32X BootCamp's EDCD.32X (bit on only inside its copies) boots.

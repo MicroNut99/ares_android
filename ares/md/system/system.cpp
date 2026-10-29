@@ -49,9 +49,6 @@ auto option(string name, string value) -> bool {
   if(name == "TMSS") {
     system.tmss = value.boolean();
   }
-  if(name == "32X Timing") {   //"console": the 32X as the console runs it (README-CD32X.md "Console timing"); "off"
-    m32x.setTiming(value);
-  }
   return true;
 }
 

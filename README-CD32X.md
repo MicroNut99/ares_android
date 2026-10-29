@@ -119,27 +119,24 @@ Sega CD + 32X **cartridge** games with CD audio (Sonic 32X Plus, OpenTyrian + Se
 load with **Load → Sega → Mega 32X**; when the cart's header lists the CD, ares asks for
 the `.cue` too.
 
-## Console timing: the 32X hardware matching mode
+## Console timing: the 32X hardware matching mode (in progress)
 
-**What it is:** ares running CD32X games at the console's speed, so a game can be profiled and tuned
-in ares instead of burning a disc for every test. **Off by default** (ares as released keeps
-upstream's timing, which runs 32X games faster than the console).
+**Goal:** a setting that makes ares run CD32X games at the console's speed, so a game can be
+profiled and tuned in ares instead of burning a disc for every test. It will be one switch, **off by
+default** (ares as released keeps upstream's timing): `ARES_32X_TIMING=console`, and the same in the
+desktop app's Settings.
 
-**Turning it on:**
-- **Windows:** the menu **Settings > Real Sega 32X Hardware Timing** (a tick). It takes effect at once,
-  also in a running game, and is remembered.
-- **ares-headless:** `ARES_32X_TIMING=console` in front of the command (`--stats` prints the frame rate
-  and the accesses per picture once a second).
-
-**Status, 29 Oct 2026:**
-- One model in `main`: the costs of cart, frame buffer and SDRAM accesses, the VDP's 4-word write
-  FIFO and fill, the two SH2s waiting for each other on the shared bus, cache line fills, access
-  counters (`ares-headless --stats`, `--profile`), and the SH2's own instruction timings (branches,
-  BT/BF taken, multiplies, TAS, load-use and MAC stalls) in the interpreter and the recompiler.
-- "console" uses the costs the timing probe measured on the owner's console (NTSC Sega CD + 32X,
-  28 Oct 2026); `ares/md/m32x/bus-internal.cpp` lists every number.
-- **Not yet checked against the games' own console frame rates** (the table below): a first
-  calibration. Treat its frame rates as an estimate until that check is done.
+**Status, 28 Oct 2026:**
+- The timing probe disc is built and runs in ares; its console readings are the next step (below).
+- The timing model exists on two branches of this repository, written on 20 Oct 2026 and not yet
+  in `main`:
+  - `cd32x-bus-jh`: the costs of cart, frame buffer and SDRAM accesses, the VDP's 4-word write
+    FIFO, the two SH2s waiting for each other on the shared bus, cache line fills, and access
+    counters (`ares-headless --stats`, `--profile`);
+  - `cd32x-timing`: the SH2's real instruction timings (branches, BT/BF taken, multiplies, TAS,
+    load-use and MAC stalls) in the interpreter and the recompiler.
+- They get merged into one model, set from the probe's console numbers, then checked against the
+  game readings below.
 
 ### Why the probe: the 32X's bus arbitration is not fully documented
 

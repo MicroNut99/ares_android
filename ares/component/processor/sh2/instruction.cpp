@@ -24,15 +24,6 @@ auto SH2::instruction() -> void {
     ID = 0;
     u16 opcode = readWord(PC - 4);
     instructionPrologue(opcode);
-    if(insnTiming.enabled) {                          //CD32X console timing (timing.hpp)
-      u32 extra = insnTiming.extra[opcode] + insnTiming.pair(lastOpcode, opcode);
-      if(insnTiming.loadAlt) {
-        if(SH2Timing::isLoad(opcode)) { if(++loadRun % 2 == 0) extra += insnTiming.loadAlt; }
-        else loadRun = 0;
-      }
-      lastOpcode = opcode;
-      if(extra) step(extra);
-    }
     execute(opcode);
     instructionEpilogue();
   } else {

@@ -272,7 +272,6 @@ auto M32X::writeExternalIO(n1 upper, n1 lower, n24 address, n16 data) -> void {
   if(address >= 0xa15120 && address <= 0xa1512f) {
     if(lower) communication[address >> 1 & 7].byte(0) = data.byte(0);
     if(upper) communication[address >> 1 & 7].byte(1) = data.byte(1);
-    commLog(address >> 1 & 7, 'G');
   }
 
   //PWM control

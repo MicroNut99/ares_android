@@ -6,11 +6,6 @@
 //                [--ramcart-type pcb|everdrive] [--ramcart-boot launcher.bin]   (Mega EverDrive PRO)
 //                [--press frame:buttons ...] [--screenshot frame:file.ppm ...]
 //                [--wav out.wav] [--home dir] [--interpreter]
-//                [--save-state frame:file] [--load-state file] [--stats] [--profile from:file]
-//
-//--stats prints, once a second, what the SH2s did in that second: 32X pictures shown (fps) and
-//16-bit accesses per shown picture to the cart, the frame buffer and SDRAM. The costs ares
-//charges for them come from ARES_32X_TIMING (ares/md/m32x/bus-internal.cpp).
 //
 //Prints the 32X COMM registers once a second (the CD32X boot stacks post their status
 //in COMM12: 4B10 = game running) and how much audio came out.
@@ -87,17 +82,9 @@ int main(int argc, char** argv) {
   uint32_t frames = 600;
   std::map<uint32_t, uint32_t> presses;      //frame -> buttons from that frame on
   std::map<uint32_t, std::string> shots;     //frame -> file
-  std::map<uint32_t, std::string> dumps;     //frame -> file (--dump-sdram)
   std::map<uint32_t, std::string> saves;     //frame -> state file
   std::string loadFile;
   std::string wavFile;
-  bool stats = false;
-  std::vector<uint32_t> watch;   //--watch addr (hex): per vblank, the SDRAM longs and whether a picture was shown
-  bool swaps = false;            //--swaps: per second, one character a vblank: '|' a new 32X picture, '.' none
-  std::string swapLine;
-  uint64_t swapLast = 0;
-  uint32_t profFrom = ~0u;
-  std::string profFile;
   paths.home = "./ares-home/";
 
   for(int i = 1; i < argc; i++) {
@@ -117,18 +104,6 @@ int main(int argc, char** argv) {
     else if(a == "--frames") frames = (uint32_t)atoi(next().c_str());
     else if(a == "--interpreter") request.recompiler = false;
     else if(a == "--wav") wavFile = next();
-    else if(a == "--load-state") loadFile = next();
-    else if(a == "--stats") stats = true;
-    else if(a == "--swaps") swaps = true;
-    else if(a == "--watch") watch.push_back((uint32_t)strtoul(next().c_str(), nullptr, 16));
-    else if(a == "--profile") {
-      auto v = next(); auto c = v.find(':');
-      profFrom = (uint32_t)atoi(v.substr(0, c).c_str()); profFile = v.substr(c + 1);
-    }
-    else if(a == "--save-state") {
-      auto v = next(); auto c = v.find(':');
-      saves[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
-    }
     else if(a == "--machine") {
       auto m = next();
       if(m == "cd32x") request.machine = Machine::MegaCD32X;
@@ -138,9 +113,11 @@ int main(int argc, char** argv) {
     } else if(a == "--press") {
       auto v = next(); auto c = v.find(':');
       presses[(uint32_t)atoi(v.substr(0, c).c_str())] = parseButtons(v.substr(c + 1));
-    } else if(a == "--dump-sdram") {   //--dump-sdram frame:file - the 32X's 256 KB SDRAM, big-endian
+    } else if(a == "--save-state") {
       auto v = next(); auto c = v.find(':');
-      dumps[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
+      saves[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
+    } else if(a == "--load-state") {
+      loadFile = next();
     } else if(a == "--screenshot") {
       auto v = next(); auto c = v.find(':');
       shots[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
@@ -159,13 +136,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   printf("booted: %s\n", session.description().c_str());
-  if(!loadFile.empty()) {
-    if(!session.loadState(loadFile)) { fprintf(stderr, "load state failed: %s\n", loadFile.c_str()); return 1; }
-    printf("state loaded: %s\n", loadFile.c_str());
-  }
-  uint64_t last[6] = {}, lastF[16] = {};
-  session.timingStats(last);
-  session.fillStats(lastF);
+  if(!loadFile.empty()) printf("load state %s: %s\n", loadFile.c_str(), session.loadState(loadFile) ? "ok" : "FAILED");
 
   Wav wav;
   if(!wavFile.empty()) wav.open(wavFile);
@@ -179,7 +150,6 @@ int main(int argc, char** argv) {
   for(uint32_t f = 0; f < frames; f++) {
     if(auto it = presses.find(f); it != presses.end()) buttons = it->second;
     session.setButtons(0, buttons);
-    if(f == profFrom) session.profileStart();
     session.runFrame();
 
     uint32_t got = session.readAudio(audio.data(), session.bufferedAudioFrames());
@@ -188,37 +158,8 @@ int main(int argc, char** argv) {
     wav.write(audio.data(), got);
 
     if(session.copyFrame(frame, serial)) serial = frame.serial;
-    if(!watch.empty()) {
-      uint64_t now[6];
-      session.timingStats(now);
-      static uint64_t wl;
-      printf("  w %u %c", f, now[5] != wl ? '|' : '.');
-      wl = now[5];
-      for(auto a : watch) printf(" %d", (int32_t)session.sdram32(a));
-      printf(" c0=%04X c8=%04X c14=%04X", session.comm(0), session.comm(4), session.comm(7));
-      printf("\n");
-    }
-    if(swaps) {
-      uint64_t now[6];
-      session.timingStats(now);
-      swapLine += now[5] != swapLast ? '|' : '.';
-      swapLast = now[5];
-      if(swapLine.size() == 60) { printf("  swaps %s\n", swapLine.c_str()); swapLine.clear(); }
-    }
-    if(auto it = saves.find(f); it != saves.end()) {
-      printf("frame %u: state %s %s\n", f, it->second.c_str(), session.saveState(it->second) ? "saved" : "NOT SAVED");
-    }
-    if(auto it = dumps.find(f); it != dumps.end()) {
-      if(FILE* fp = fopen(it->second.c_str(), "wb")) {
-        for(uint32_t a = 0; a < 0x40000; a += 4) {
-          uint32_t v = session.sdram32(0x06000000 + a);
-          uint8_t b[4] = {(uint8_t)(v >> 24), (uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v};
-          fwrite(b, 1, 4, fp);
-        }
-        fclose(fp);
-        printf("frame %u: SDRAM dump %s\n", f, it->second.c_str());
-      }
-    }
+    if(auto it = saves.find(f); it != saves.end())
+      printf("frame %u: save state %s: %s\n", f, it->second.c_str(), session.saveState(it->second) ? "ok" : "FAILED");
     if(auto it = shots.find(f); it != shots.end()) {
       writePPM(it->second, frame);
       printf("frame %u: screenshot %s (%ux%u, aspect %.3f)\n", f, it->second.c_str(), frame.width, frame.height, frame.aspect);
@@ -230,35 +171,12 @@ int main(int argc, char** argv) {
         (f + 1) / 60, frame.width, frame.height,
         session.comm(0), session.comm(1), session.comm(2), session.comm(3), session.comm(4), session.comm(5),
         session.comm(6), session.comm(7), rms);
-      if(getenv("ARES_PC")) {  //the 68000s' program counters and the mega CD's command flags
-        uint32_t c[4]; session.cpuState(c);
-        printf("    68k pc=%06X  sub pc=%06X  mcd flags main=%02X sub=%02X\n", c[0] & 0xffffff, c[1] & 0xffffff, c[2], c[3]);
-        uint32_t d[4]; session.cddState(d);
-        printf("    cdd status=%X track=%u sector=%u cda-attenuator=%04X\n", d[0], d[1], d[2], d[3]);
-      }
-      if(stats) {
-        uint64_t now[6];
-        session.timingStats(now);
-        uint64_t d[6];
-        for(int k = 0; k < 6; k++) d[k] = now[k] - last[k], last[k] = now[k];
-        uint64_t n = d[5] ? d[5] : 1;
-        printf("  stats t=%u fps=%llu per picture: cart %llu fbR %llu fbW %llu sdR %llu sdW %llu\n", (f + 1) / 60,
-          (unsigned long long)d[5], (unsigned long long)(d[0] / n), (unsigned long long)(d[1] / n),
-          (unsigned long long)(d[2] / n), (unsigned long long)(d[3] / n), (unsigned long long)(d[4] / n));
-        uint64_t nf[16];
-        session.fillStats(nf);
-        printf("    line fills per picture: master cart %llu sdram %llu  slave cart %llu sdram %llu\n",
-          (unsigned long long)((nf[2] - lastF[2]) / n), (unsigned long long)((nf[6] - lastF[6]) / n),
-          (unsigned long long)((nf[10] - lastF[10]) / n), (unsigned long long)((nf[14] - lastF[14]) / n));
-        for(int k = 0; k < 16; k++) lastF[k] = nf[k];
-      }
       fflush(stdout);
       audioEnergy = 0.0;
       audioFrames = 0;
     }
   }
 
-  if(!profFile.empty()) printf("profile %s %s\n", profFile.c_str(), session.profileWrite(profFile) ? "written" : "NOT WRITTEN");
   wav.close();
   session.unload();  //writes the RAM cart and backup RAM
   return 0;

@@ -86,7 +86,6 @@ auto M32X::VDP::plot(u32* output, u16 color) -> void {
 auto M32X::VDP::fill() -> void {
   if(framebufferWait > 0) { debug(unusual, "[32X FILL] triggered before last fill finished"); return; }
   framebufferWait = 7+3*(autofillLength+1); // according to official docs
-  if(m32x.timing.vdpFill) framebufferWait = 7 + (m32x.timing.vdpFillWord * (autofillLength + 1) + 8) / 16;  //console timing
   for(u32 repeat : range(1 + autofillLength)) {
     bbram[autofillAddress] = autofillData;
     autofillAddress.byte(0)++;
@@ -97,7 +96,6 @@ auto M32X::VDP::selectFramebuffer(n1 select) -> void {
   framebufferSelect = select;
   if(!vblank && latch.mode) return;
 
-  if(framebufferActive != select) m32x.stats.swaps++;
   framebufferActive = select;
   fbram = {dram.data() + 0x10000 * (select == 0), 0x10000};
   bbram = {dram.data() + 0x10000 * (select == 1), 0x10000};

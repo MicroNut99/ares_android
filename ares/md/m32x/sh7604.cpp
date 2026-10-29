@@ -50,7 +50,6 @@ auto M32X::SH7604::instructionPrologue(u16 instruction) -> void {
 }
 
 auto M32X::SH7604::internalStep(u32 clocks) -> void {
-  profAdd(clocks);
   if(SH2::Accuracy::Recompiler && m32x.shm.recompiler.enabled) {
     regs.CCR += clocks;
     return;
@@ -60,7 +59,6 @@ auto M32X::SH7604::internalStep(u32 clocks) -> void {
 }
 
 auto M32X::SH7604::step(u32 clocks) -> void {
-  total += clocks;
   SH2::frt.run(clocks);
   SH2::wdt.run(clocks);
   Thread::step(clocks);
@@ -68,9 +66,7 @@ auto M32X::SH7604::step(u32 clocks) -> void {
   cyclesUntilSh2Sync -= clocks;
   cyclesUntilM68kSync -= clocks;
 
-  //the VDP fill's busy time: upstream counts it down on both SH2s' clocks (so twice as fast); with console
-  //timing (vfill=1) only on the master's
-  if(!m32x.timing.vdpFill || this == &m32x.shm) m32x.vdp.framebufferWait -= min(clocks, m32x.vdp.framebufferWait);
+  m32x.vdp.framebufferWait -= min(clocks, m32x.vdp.framebufferWait);
 
   if(cyclesUntilSh2Sync <= 0) {
     cyclesUntilSh2Sync = minCyclesBetweenSh2Syncs;
@@ -150,12 +146,8 @@ auto M32X::SH7604::busReadWord(u32 address) -> u32 {
 }
 
 auto M32X::SH7604::busReadLong(u32 address) -> u32 {
-  longHalf = 1;                     //console timing: the second half of a 32-bit read costs its own (cart2, sdr2)
   u32    data = m32x.readInternal(1, 1, address & ~3 | 0) << 16;
-  longHalf = 2;
-  data |= m32x.readInternal(1, 1, address & ~3 | 2) <<  0;
-  longHalf = 0;
-  return data;
+  return data | m32x.readInternal(1, 1, address & ~3 | 2) <<  0;
 }
 
 auto M32X::SH7604::busWriteByte(u32 address, u32 data) -> void {

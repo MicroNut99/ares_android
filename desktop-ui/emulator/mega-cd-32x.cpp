@@ -145,7 +145,6 @@ auto MegaCD32X::load() -> LoadResult {
   }
 
   ares::MegaDrive::option("Recompiler", !settings.general.forceInterpreter);
-  ares::MegaDrive::option("32X Timing", settings.megadrive.realHardwareTiming ? "console" : "off");
 
   ramCart.reset();
   ramCartFile = {};
