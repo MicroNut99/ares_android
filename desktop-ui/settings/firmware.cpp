@@ -75,7 +75,9 @@ auto FirmwareSettings::eventAssign() -> void {
       if(firmware.region != region) continue;
       BrowserDialog dialog;
       dialog.setTitle({"Select ", name, " ", type, " (", region, ")"});
-      dialog.setPath(Path::desktop());
+      //CD32X build: start in the "bios" folder next to ares.exe
+      string biosPath{Path::program(), "bios/"};
+      dialog.setPath(directory::exists(biosPath) ? biosPath : Path::desktop());
       dialog.setAlignment(settingsWindow);
       dialog.setFilters({"All|*"});
       if(auto location = program.openFile(dialog)) {

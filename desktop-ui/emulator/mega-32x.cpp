@@ -1,11 +1,18 @@
+//mega-cd-32x.cpp: the RAM cart / Mega EverDrive PRO from Settings > Options
+auto makeRamCartPak(u32 slot, const std::vector<u8>& launcher, string& cartFile) -> std::shared_ptr<vfs::directory>;
+auto saveRamCartPak(std::shared_ptr<vfs::directory> ramCart, const string& cartFile) -> void;
+
 struct Mega32X : Emulator {
   Mega32X();
   auto load() -> LoadResult override;
+  auto unload() -> void override;
   auto save() -> bool override;
   auto pak(ares::Node::Object) -> std::shared_ptr<vfs::directory> override;
 
   std::shared_ptr<mia::Pak> disc;
   u32 regionID = 0;
+  std::shared_ptr<vfs::directory> ramCart;  //the EverDrive PRO holding the ROM (a SEGA SSF ROM with the Mega CD)
+  string ramCartFile;
 };
 
 Mega32X::Mega32X() {
@@ -77,6 +84,20 @@ auto Mega32X::load() -> LoadResult {
 
     disc = mia::Medium::create("Mega CD");
     if(disc->load(Emulator::load(disc, configuration.game)) != successful) disc.reset();
+
+    //a "SEGA SSF" ROM (the Mega EverDrive PRO's SSF mode) with the Mega EverDrive PRO chosen in
+    //Settings > Options: the ROM goes into that EverDrive and boots from it, as the PRO runs a ROM
+    //from its SD card (the 32X+CD Plutonia cartridge writes its own memory). Any other ROM, or
+    //another cart type in Options: a normal cartridge, as before.
+    ramCart.reset();
+    ramCartFile = {};
+    if(settings.megadrive.ramCart && settings.megadrive.ramCartType == 1) {
+      if(auto fp = game->pak->read("program.rom"); fp && fp->size() >= 0x200
+      && !memory::compare(fp->data() + 0x100, "SEGA SSF", 8)) {
+        std::vector<u8> rom(fp->data(), fp->data() + fp->size());
+        ramCart = makeRamCartPak(settings.megadrive.ramCartSlot, rom, ramCartFile);
+      }
+    }
   } else {
     name = "Mega 32X";
     system = mia::System::create("Mega 32X");
@@ -115,14 +136,21 @@ auto Mega32X::load() -> LoadResult {
 auto Mega32X::save() -> bool {
   root->save();
   system->save(system->location);
-  game->save(game->location);
+  if(ramCart) saveRamCartPak(ramCart, ramCartFile);  //the ROM ran from the EverDrive: its memory is the save
+  else game->save(game->location);
   if(disc) disc->save(disc->location);
   return true;
 }
 
+auto Mega32X::unload() -> void {
+  Emulator::unload();  //calls save(), which writes the EverDrive's memory
+  ramCart.reset();
+  ramCartFile = {};
+}
+
 auto Mega32X::pak(ares::Node::Object node) -> std::shared_ptr<vfs::directory> {
   if(node->name() == "Mega Drive") return system->pak;
-  if(node->name() == "Mega Drive Cartridge") return game->pak;
+  if(node->name() == "Mega Drive Cartridge") return ramCart ? ramCart : game->pak;
   if(node->name() == "Mega CD Disc" && disc) return disc->pak;
   return {};
 }

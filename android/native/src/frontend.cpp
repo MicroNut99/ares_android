@@ -335,6 +335,15 @@ struct Session::Impl : ares::Platform {
 
     if(machine == Machine::MegaCD32X) {
       if((error = makeRamCart(request.ramCart)) != "") return error;
+    } else if(machine == Machine::Mega32X && disc && request.ramCart.everdrive) {
+      //the ROM loaded first, as desktop ares: a "SEGA SSF" ROM with the EverDrive PRO chosen goes into
+      //the EverDrive and boots from it (as the PRO runs a ROM from its SD card); others stay a cartridge
+      auto fp = cart->pak->read("program.rom");
+      if(fp && fp->size() >= 0x200 && !nall::memory::compare(fp->data() + 0x100, "SEGA SSF", 8)) {
+        auto options = request.ramCart;
+        options.boot = request.game;
+        if((error = makeRamCart(options)) != "") return error;
+      }
     }
 
     ares::MegaDrive::option("Recompiler", request.recompiler ? "true" : "false");

@@ -42,13 +42,15 @@ auto ramCartLocation(u32 slot, u32 type) -> string {
   return location;
 }
 
-//the 16 MB cart `slot` (1-9), from its file; a new cart is blank (0xff)
-auto MegaCD32X::makeRamCart(u32 slot) -> void {
+//the 16 MB cart `slot` (1-9), from its file; a new cart is blank (0xff). `launcher`: the ROM a
+//Mega EverDrive PRO boots first (type 1 only); none: the disc boots. Also used by Mega 32X:
+//a ROM loaded first goes into the EverDrive PRO chosen in Settings > Options.
+auto makeRamCartPak(u32 slot, const std::vector<u8>& launcher, string& cartFile) -> std::shared_ptr<vfs::directory> {
   if(slot < 1 || slot > 9) slot = 1;
   const u32 size = 16_MiB;
   u32 type = settings.megadrive.ramCartType;
-  ramCartFile = ramCartLocation(slot, type);
-  ramCart = std::make_shared<vfs::directory>();
+  cartFile = ramCartLocation(slot, type);
+  auto ramCart = std::make_shared<vfs::directory>();
   ramCart->setAttribute("title", type == 1 ? "Mega EverDrive PRO" : "RAM Cart");
   if(type == 1) ramCart->setAttribute("everdrive", true);  //the extended SSF mapper, as EDBOOT leaves it
   ramCart->setAttribute("region", "NTSC-U, NTSC-J, PAL");
@@ -57,26 +59,37 @@ auto MegaCD32X::makeRamCart(u32 slot) -> void {
   ramCart->setAttribute("ramcart", true);
   ramCart->setAttribute("size", size);
   ramCart->setAttribute("writeProtect", settings.megadrive.ramCartWriteProtect);
-  if(type == 1 && settings.megadrive.ramCartLauncher) {
+  if(type == 1 && launcher.size() >= 0x200) {
     //the cartridge boot: the launcher ROM (EDCD.32X) boots from the EverDrive first, starts the Sega CD
     //itself and hands over to the disc's boot stack - what the console does (CD32X BootCamp docs/12)
-    auto rom = file::read(settings.megadrive.ramCartLauncher);
-    if(rom.size() >= 0x200) {
-      ramCart->setAttribute("bootable", true);  //CART_IN asserted: the launcher boots
-      ramCart->append("program.rom", rom);
-    }
+    ramCart->setAttribute("bootable", true);  //CART_IN asserted: the launcher boots
+    ramCart->append("program.rom", launcher);
   }
   std::vector<u8> memory(size, 0xff);
-  auto existing = file::read(ramCartFile);
+  auto existing = file::read(cartFile);
   if(!existing.empty()) memcpy(memory.data(), existing.data(), min(existing.size(), memory.size()));
   ramCart->append("ram.cart", memory);
+  return ramCart;
+}
+
+auto saveRamCartPak(std::shared_ptr<vfs::directory> ramCart, const string& cartFile) -> void {
+  if(!ramCart || !cartFile) return;
+  if(auto fp = ramCart->read("ram.cart")) {
+    file::write(cartFile, {fp->data(), fp->size()});
+  }
+}
+
+//the 16 MB cart `slot` (1-9), with the launcher from Settings > Options
+auto MegaCD32X::makeRamCart(u32 slot) -> void {
+  std::vector<u8> launcher;
+  if(settings.megadrive.ramCartType == 1 && settings.megadrive.ramCartLauncher) {
+    launcher = file::read(settings.megadrive.ramCartLauncher);
+  }
+  ramCart = makeRamCartPak(slot, launcher, ramCartFile);
 }
 
 auto MegaCD32X::saveRamCart() -> void {
-  if(!ramCart || !ramCartFile) return;
-  if(auto fp = ramCart->read("ram.cart")) {
-    file::write(ramCartFile, {fp->data(), fp->size()});
-  }
+  saveRamCartPak(ramCart, ramCartFile);
 }
 
 MegaCD32X::MegaCD32X() {
