@@ -133,6 +133,8 @@ auto SH2::Recompiler::emit(u32 address) -> Block* {
     mov32(reg(2), imm(emitSize));
     call(&SH2::fetchTrampoline);
   }
+  u16 prevOpcode = 0;               //CD32X console timing: load-use pairs inside the block
+  u32 loadRun = 0;                  //and loads in a row (timing.hpp loadAlt)
   while(true) {
     u16 instruction = instructions[index++];
     if(callInstructionPrologue) {
@@ -141,7 +143,13 @@ auto SH2::Recompiler::emit(u32 address) -> Block* {
     }
     auto branch = emitInstruction(instruction);
     inDelaySlot = branch == Branch::Slot;
-    add64(CCR, CCR, imm(1));
+    u32 timingExtra = self.insnTiming.extra[instruction] + self.insnTiming.pair(prevOpcode, instruction);
+    if(self.insnTiming.loadAlt) {
+      if(SH2Timing::isLoad(instruction)) { if(++loadRun % 2 == 0) timingExtra += self.insnTiming.loadAlt; }
+      else loadRun = 0;
+    }
+    add64(CCR, CCR, imm(1 + timingExtra));
+    prevOpcode = instruction;
   //add64(CCR, CCR, imm(2));  //underclocking hack
     call(&SH2::instructionEpilogue);
     address += 2;
@@ -817,6 +825,7 @@ auto SH2::Recompiler::emitInstruction(u16 opcode) -> u32 {
       auto skip = cmp32_jump(T, imm(0), flag_eq);
       add32(PPC, PC, imm(4 + (s8)d8 * 2));
       mov32(PPM, imm(Branch::Take));
+      if(self.insnTiming.enabled) add64(CCR, CCR, imm(self.insnTiming.condTaken));
       setLabel(skip);
     });
     return Branch::Take;
@@ -828,6 +837,7 @@ auto SH2::Recompiler::emitInstruction(u16 opcode) -> u32 {
       auto skip = cmp32_jump(T, imm(0), flag_ne);
       add32(PPC, PC, imm(4 + (s8)d8 * 2));
       mov32(PPM, imm(Branch::Take));
+      if(self.insnTiming.enabled) add64(CCR, CCR, imm(self.insnTiming.condTaken));
       setLabel(skip);
     });
     return Branch::Take;
@@ -839,6 +849,7 @@ auto SH2::Recompiler::emitInstruction(u16 opcode) -> u32 {
       auto skip = cmp32_jump(T, imm(0), flag_eq);
       add32(PPC, PC, imm(4 + (s8)d8 * 2));
       mov32(PPM, imm(Branch::Slot));
+      if(self.insnTiming.enabled) add64(CCR, CCR, imm(self.insnTiming.condTakenS));
       setLabel(skip);
     });
     return Branch::Slot;
@@ -850,6 +861,7 @@ auto SH2::Recompiler::emitInstruction(u16 opcode) -> u32 {
       auto skip = cmp32_jump(T, imm(0), flag_ne);
       add32(PPC, PC, imm(4 + (s8)d8 * 2));
       mov32(PPM, imm(Branch::Slot));
+      if(self.insnTiming.enabled) add64(CCR, CCR, imm(self.insnTiming.condTakenS));
       setLabel(skip);
     });
     return Branch::Slot;

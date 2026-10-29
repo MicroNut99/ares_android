@@ -7,7 +7,13 @@
 
 namespace ares {
 
+#include "timing.hpp"
+
 struct SH2 {
+  //CD32X console timing (timing.hpp): the SH-2's own instruction timings; off unless ARES_32X_TIMING turns them on
+  inline static SH2Timing insnTiming;
+  u16 lastOpcode = 0;           //the interpreter's previous instruction (load-use pairs)
+  u32 loadRun = 0;              //the interpreter's loads in a row (timing.hpp loadAlt)
   virtual auto instructionPrologue(u16 instruction) -> void = 0;
   virtual auto step(u32 clocks) -> void = 0;
   virtual auto busReadByte(u32 address) -> u32 = 0;

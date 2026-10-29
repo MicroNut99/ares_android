@@ -55,10 +55,12 @@ struct M32X {
     auto lineFillCost(u32 address) -> u32 override;
 
     //cd32x-timing: this SH2's share of the shared bus lately
-    u64 uStart = 0, uBusy = 0, uCount = 0;
+    u64 uStart = 0, uBusy = 0, uCount = 0, uHold = 0;
     u64 total = 0;        //clocks stepped since power-on (monotonic; the scheduler rebases clock())
     u32 util256 = 0;      //busy fraction x 256
     u32 tenure16 = 16;    //mean bus tenure x 16
+    u32 frac16 = 0;       //the sixteenths of a clock charged but not stepped yet
+    u8 longHalf = 0;      //1 / 2: the first / second half of a 32-bit access is on the bus
 
     //serialization.cpp
     auto serialize(serializer&) -> void;
@@ -266,30 +268,44 @@ struct M32X {
     u64 swaps = 0;         //frame buffer swaps actually shown (a new 32X picture)
   } stats;
 
-  //SH2 memory costs, in SH2 clocks per 16-bit access. Upstream's values are the defaults; the
-  //environment variable ARES_32X_TIMING (e.g. "cart=8,fbw=1,fifo=4,drain=3") replaces them.
+  //SH2 memory costs, in SH2 clocks x 16 (so a cost can be 7.6 clocks) per 16-bit access.  Upstream's
+  //values are the defaults; the environment variable ARES_32X_TIMING replaces them ("console": the
+  //values measured on the console with the CD32X timing probe, README-CD32X.md "Console timing").
   struct Timing {
-    u32 cartRead = 6;
-    u32 fbRead = 5;
-    u32 fbWrite = 4;      //each frame buffer write, plus any FIFO stall
-    u32 fifoDepth = 0;    //0: no FIFO model (upstream)
-    u32 fifoDrain = 0;    //SH2 clocks the VDP takes to retire one FIFO word
-    u32 sdramRead = 0;
+    u32 cartRead = 6 * 16;
+    u32 cartRead2 = 6 * 16;   //the second half of a 32-bit cart read
+    u32 fbRead = 5 * 16;
+    u32 fbWrite = 4 * 16;     //each frame buffer write, plus any FIFO stall
+    u32 fifoDepth = 0;        //0: no FIFO model (upstream)
+    u32 fifoDrain = 0;        //x16: SH2 clocks the VDP takes to retire one FIFO word
+    u32 sdramRead = 0;        //an uncached 16-bit read (the first half of a 32-bit one)
+    u32 sdramRead2 = 0;       //the second half of an uncached 32-bit read (one burst)
     u32 sdramWrite = 0;
-    u32 insn = 0;         //extra SH2 clocks per 16 recompiled instructions (pipeline stalls, fetches)
-    u32 io = 1;           //32X register access (upstream: 1)
-    u32 fill = 12;        //SDRAM cache line fill (burst), the whole line
-    u32 cfill = 12;       //added to a line fill from elsewhere (cart: its 8 reads are charged too)
-    u32 contention = 0;   //1: an SH2 waits while the other one holds the shared bus
-    u32 arb = 0;          //clocks to hand the bus over to the other SH2
-    u64 fifoEnd = 0;      //the time the FIFO is empty, in SH2 clocks
+    u32 insn = 0;             //extra SH2 clocks per 16 recompiled instructions (whole clocks)
+    u32 io = 1 * 16;          //32X register read (upstream: 1)
+    u32 ioWrite = 1 * 16;     //32X register write
+    u32 vdpRead = 1 * 16;     //32X VDP register read (0x4100-0x41FF)
+    u32 fill = 12 * 16;       //SDRAM cache line fill (burst), the whole line
+    u32 cfill = 12 * 16;      //added to a line fill from elsewhere (cart: its 8 reads are charged too)
+    u32 contention = 0;       //1: an SH2 waits half the other's tenure (20 Oct); 2: the whole tenure + hand-over (probe)
+    u32 arb = 0;              //x16: clocks to hand the bus over to the other SH2
+    u32 holdCart = 0;         //x16: how long a cart read holds the bus for the other SH2 (0: its cost)
+    u32 holdSdram = 0;        //x16: the same for an uncached SDRAM read
+    u32 holdWrite = 0;        //x16: the same for a write (SDRAM, frame buffer, registers)
+    u32 vdpFill = 0;          //1: the VDP fill's busy time runs on the master's clock only (upstream: on both SH2s, so twice as fast)
+    u32 vdpFillWord = 3 * 16; //x16: the fill's clocks per word (with vdpFill; upstream's 7 + 3 a word)
+    u64 fifoEnd = 0;          //x16: the time the FIFO is empty
   } timing;
   auto loadTiming() -> void;
+  //the frontend's choice (option "32X Timing": "console", "off" or a list as ARES_32X_TIMING takes it);
+  //empty: the environment variable ARES_32X_TIMING decides (ares-headless)
+  string timingMode;
+  auto setTiming(string mode) -> void;
   auto sh2Now() -> u64;
   auto fbWriteCost() -> u32;
-  auto busCharge(u32 clocks) -> void;
+  auto busCharge(u32 clocks16, u32 hold16 = 0) -> void;
   auto busStall(M32X::SH7604& self, M32X::SH7604& other) -> u32;
-  auto busAccount(M32X::SH7604& self, u32 clocks) -> void;
+  auto busAccount(M32X::SH7604& self, u32 hold16, u32 busy16) -> void;
 };
 
 extern M32X m32x;

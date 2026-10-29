@@ -86,6 +86,7 @@ auto M32X::VDP::plot(u32* output, u16 color) -> void {
 auto M32X::VDP::fill() -> void {
   if(framebufferWait > 0) { debug(unusual, "[32X FILL] triggered before last fill finished"); return; }
   framebufferWait = 7+3*(autofillLength+1); // according to official docs
+  if(m32x.timing.vdpFill) framebufferWait = 7 + (m32x.timing.vdpFillWord * (autofillLength + 1) + 8) / 16;  //console timing
   for(u32 repeat : range(1 + autofillLength)) {
     bbram[autofillAddress] = autofillData;
     autofillAddress.byte(0)++;

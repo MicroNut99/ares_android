@@ -1,5 +1,5 @@
 auto M32X::readInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> n16 {
-  busCharge(timing.io);
+  busCharge((address >= 0x4100 && address <= 0x41ff) ? timing.vdpRead : timing.io);
 
   //interrupt mask
   if(address == 0x4000) {
@@ -171,7 +171,7 @@ auto M32X::readInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> n16 {
 }
 
 auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
-  busCharge(timing.io);
+  busCharge(timing.ioWrite);
 
   //interrupt mask
   if(address == 0x4000) {
