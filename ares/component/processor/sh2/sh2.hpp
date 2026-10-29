@@ -268,6 +268,15 @@ struct SH2 {
   //With fetchModel set, each recompiled block reads the cache lines it spans when it runs (a miss
   //costs a line fill, as in the interpreter), and insnExtra16 adds clocks per 16 instructions.
   static inline u32 fetchModel = 0;
+  //CD32X console timing: the division unit takes divLatency clocks (Hitachi SH7604 manual: 39); a DIVU
+  //register access during a division waits until it is done. 0: off (upstream: the quotient at once)
+  static inline u32 divLatency = 0;
+  virtual auto clockNow() -> u64 { return 0; }
+  virtual auto clockWait(u32 clocks) -> void {}
+  auto divWait() -> void {
+    u64 n = clockNow();
+    if(n < divu.doneAt && divu.doneAt - n < 1024) clockWait(u32(divu.doneAt - n));
+  }
   static inline u32 insnExtra16 = 0;
   //and with profileOn, the SH2 clocks each block costs (its instructions, its memory waits)
   static inline u32 profileOn = 0;

@@ -40,6 +40,8 @@ struct M32X {
     auto instructionPrologue(u16 instruction) -> void override;
     auto step(u32 clocks) -> void override;
     auto internalStep(u32 clocks) -> void;
+    auto clockNow() -> u64 override;
+    auto clockWait(u32 clocks) -> void override { internalStep(clocks); }
   auto power(bool reset) -> void;
     auto restart() -> void;
     auto syncAll(bool force = false) -> void;
@@ -59,6 +61,9 @@ struct M32X {
     u64 total = 0;        //clocks stepped since power-on (monotonic; the scheduler rebases clock())
     u32 util256 = 0;      //busy fraction x 256
     u32 tenure16 = 16;    //mean bus tenure x 16
+    u32 utilHold256 = 0;  //the share of the time in its own bus tenures, waits left out, x 256 (cont=3)
+    u64 lastBusEnd = 0;   //when its last bus access ended, in clocks (cont=3)
+    u32 gapAvg16 = 0;     //x16, cont=3: the clocks between its accesses, averaged (a hammering loop: about 0)
     u32 frac16 = 0;       //the sixteenths of a clock charged but not stepped yet
     u8 longHalf = 0;      //1 / 2: the first / second half of a 32-bit access is on the bus
 
@@ -278,6 +283,8 @@ struct M32X {
     u32 fbWrite = 4 * 16;     //each frame buffer write, plus any FIFO stall
     u32 fifoDepth = 0;        //0: no FIFO model (upstream)
     u32 fifoDrain = 0;        //x16: SH2 clocks the VDP takes to retire one FIFO word
+    u32 cgap = 2 * 16;        //x16, cont=3: an access within this many clocks of the last one is back to back
+    u32 cmul = 16;            //x16, cont=3: the share of cont=1's wait a random-moment access gets
     u32 sdramRead = 0;        //an uncached 16-bit read (the first half of a 32-bit one)
     u32 sdramRead2 = 0;       //the second half of an uncached 32-bit read (one burst)
     u32 sdramWrite = 0;
@@ -287,7 +294,7 @@ struct M32X {
     u32 vdpRead = 1 * 16;     //32X VDP register read (0x4100-0x41FF)
     u32 fill = 12 * 16;       //SDRAM cache line fill (burst), the whole line
     u32 cfill = 12 * 16;      //added to a line fill from elsewhere (cart: its 8 reads are charged too)
-    u32 contention = 0;       //1: an SH2 waits half the other's tenure (20 Oct); 2: the whole tenure + hand-over (probe)
+    u32 contention = 0;       //1: an SH2 waits half the other's tenure (20 Oct); 2: the whole tenure + hand-over (probe); 3: by the gap since its last access (29 Oct)
     u32 arb = 0;              //x16: clocks to hand the bus over to the other SH2
     u32 holdCart = 0;         //x16: how long a cart read holds the bus for the other SH2 (0: its cost)
     u32 holdSdram = 0;        //x16: the same for an uncached SDRAM read

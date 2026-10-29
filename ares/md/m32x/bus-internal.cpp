@@ -124,6 +124,7 @@ auto M32X::writeInternal(n1 upper, n1 lower, n32 address, n16 data) -> void {
 auto M32X::loadTiming() -> void {
   timing = {};
   SH2::fetchModel = 0;
+  SH2::divLatency = 0;
   SH2::insnExtra16 = 0;
   SH2::insnTiming = {};             //the SH-2's instruction timings (component/processor/sh2/timing.hpp): off
   SH2::insnTiming.build();
@@ -141,10 +142,15 @@ auto M32X::loadTiming() -> void {
   //  the shared bus: a cart read 9.1 alone, 17.4 / 20.7 / 13.0 / 13.0 while the other SH2 reads the cart /
   //  reads SDRAM / writes the frame buffer / writes SDRAM (SDRAM read: 11.2, 20.0 / 23.3 / 15.6 / 15.6;
   //  frame buffer write: 4.8, 9.0 / 10.9 / 8.1 / 6.2)
+  //The shared bus (29 Oct, v1.5): cont=3 - the probe's turns when both SH2s hammer the bus (each access within
+  //cgap = 4 clocks of its last), else half of cont=1's random-moment wait (cmul 0.5): fitted to Hurrican's
+  //B1 benchmark on the console (effects 31.6-36.2 ms, backgrounds 84.6-85.1 ms; ares 34.4-35.3 and 85.4-86.1)
+  //with the probe's shared-bus lines kept (README-CD32X.md "Calibration against the games").  div=39: the
+  //SH-2's division unit (Hitachi SH7604 manual), a DIVU read during a division waits for it.
   if(!strcmp(env, "console")) env = "fetch=1,cpu=1,mulp=2,lalt=1,"
     "cart=7.6,cart2=8.3,cfill=1.8,sdr=9.7,sdr2=0,sdw=0.5,fill=10.3,"
     "fbr=6.7,fbw=0.5,fifo=4,drain=5,io=2.5,iow=1.9,vdpr=6.6,vfill=1,vfillw=3.06,"
-    "cont=2,arb=2.4,hcart=6,hsdr=9.7,hwr=1.5";
+    "cont=3,cgap=4,cmul=0.5,arb=2.4,hcart=6,hsdr=9.7,hwr=1.5,div=39";
   for(const char* p = env; *p;) {
     char key[16] = {};
     u32 n = 0;
@@ -170,6 +176,7 @@ auto M32X::loadTiming() -> void {
     if(k == "sdw") timing.sdramWrite = v16;
     if(k == "insn") timing.insn = v, SH2::insnExtra16 = v;
     if(k == "fetch") SH2::fetchModel = v;
+    if(k == "div") SH2::divLatency = v;
     if(k == "io") timing.io = v16, timing.ioWrite = v16, timing.vdpRead = v16;
     if(k == "iow") timing.ioWrite = v16;
     if(k == "vdpr") timing.vdpRead = v16;
@@ -177,6 +184,8 @@ auto M32X::loadTiming() -> void {
     if(k == "cfill") timing.cfill = v16;
     if(k == "cont") timing.contention = v;
     if(k == "arb") timing.arb = v16;
+    if(k == "cgap") timing.cgap = v16;
+    if(k == "cmul") timing.cmul = v16;
     if(k == "hcart") timing.holdCart = v16;
     if(k == "hsdr") timing.holdSdram = v16;
     if(k == "hwr") timing.holdWrite = v16;
@@ -250,6 +259,8 @@ auto M32X::busAccount(M32X::SH7604& self, u32 hold16, u32 busy16) -> void {
   if(now - self.uStart >= 2048) {
     u32 u = min<u64>(256, self.uBusy * 16 / (now - self.uStart));
     self.util256 = (self.util256 + u) / 2;
+    u32 h = min<u64>(256, self.uHold * 16 / (now - self.uStart));
+    self.utilHold256 = (self.utilHold256 + h) / 2;
     self.tenure16 = self.uHold / self.uCount;
     self.uStart = now; self.uBusy = 0; self.uCount = 0; self.uHold = 0;
   }
@@ -260,6 +271,20 @@ auto M32X::busAccount(M32X::SH7604& self, u32 hold16, u32 busy16) -> void {
 //the probe (28 Oct) shows two SH2s that both keep the bus busy waiting a whole tenure each time: u * (t + hand-over)
 auto M32X::busStall(M32X::SH7604& self, M32X::SH7604& other) -> u32 {
   if(!timing.contention) return 0;
+  if(timing.contention == 3) {
+    //cont=3 (29 Oct, from the games' console readings): when both SH2s access the bus back to back (each
+    //within cgap clocks of its last access - the probe's loops), they take turns: each access waits the
+    //other's whole tenure + the hand-over (cont=2). Otherwise an access comes at a random moment of the
+    //other's: it waits only if the other is in a tenure (its share of the time in its own accesses), half
+    //of one on average, + the hand-over (cont=1), times cmul. Hurrican's B1 benchmark on the console (its
+    //second SH2 polling a flag, a few clocks between reads) sits halfway between no waiting and cont=1.
+    u64 now = sh2Now();
+    u32 gap16 = now > self.lastBusEnd ? u32(min<u64>((now - self.lastBusEnd) * 16, 0xffff)) : 0;
+    self.gapAvg16 = (self.gapAvg16 * 7 + gap16) >> 3;
+    u32 t = other.tenure16;
+    if(gap16 < timing.cgap && other.gapAvg16 < timing.cgap) return (other.util256 * (t + timing.arb) + 128) >> 8;
+    return u32(((u64)other.utilHold256 * (t / 2 + timing.arb) * timing.cmul + 2048) >> 12);
+  }
   u32 u = other.util256;
   if(timing.contention == 1) return (u * (other.tenure16 / 2 + timing.arb) + 128) >> 8;
   return (u * (other.tenure16 + timing.arb) + 128) >> 8;
@@ -279,6 +304,7 @@ auto M32X::busCharge(u32 clocks16, u32 hold16) -> void {
   u32 whole = self.frac16 >> 4;
   self.frac16 &= 15;
   if(whole) self.internalStep(whole);
+  if(timing.contention == 3) self.lastBusEnd = sh2Now();
 }
 
 auto M32X::SH7604::lineFillCost(u32 address) -> u32 {
@@ -294,5 +320,6 @@ auto M32X::SH7604::lineFillCost(u32 address) -> u32 {
   frac16 += c;
   u32 whole = frac16 >> 4;
   frac16 &= 15;
+  if(m32x.timing.contention == 3) lastBusEnd = m32x.sh2Now() + whole;
   return whole;
 }

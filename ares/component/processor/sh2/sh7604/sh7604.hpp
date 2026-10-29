@@ -397,5 +397,6 @@
     n7 vcrdiv;      //vector number setting register
     n32 dvdnth;     //dividend register H
     n32 dvdntl;     //dividend register L
+    u64 doneAt = 0; //CD32X console timing: when the division in progress ends (divLatency)
   } divu;
 //};

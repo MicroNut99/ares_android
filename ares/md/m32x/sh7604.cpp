@@ -49,6 +49,12 @@ auto M32X::SH7604::instructionPrologue(u16 instruction) -> void {
   debugger.instruction(instruction);
 }
 
+auto M32X::SH7604::clockNow() -> u64 {
+  u64 t = total;
+  if(SH2::Accuracy::Recompiler && m32x.shm.recompiler.enabled) t += regs.CCR;
+  return t;
+}
+
 auto M32X::SH7604::internalStep(u32 clocks) -> void {
   profAdd(clocks);
   if(SH2::Accuracy::Recompiler && m32x.shm.recompiler.enabled) {

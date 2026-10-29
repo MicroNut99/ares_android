@@ -1,4 +1,5 @@
 auto SH2::internalReadByte(u32 address, n8 data) -> n8 {
+  if(divLatency && address >= 0xffff'ff00 && address <= 0xffff'ff1f) divWait();
   switch(address) {
 
   //SMR: serial mode register
@@ -527,6 +528,7 @@ auto SH2::internalReadByte(u32 address, n8 data) -> n8 {
 }
 
 auto SH2::internalWriteByte(u32 address, n8 data) -> void {
+  if(divLatency && address >= 0xffff'ff00 && address <= 0xffff'ff1f) divWait();
   switch(address) {
 
   //SMR: serial mode register
@@ -768,6 +770,7 @@ auto SH2::internalWriteByte(u32 address, n8 data) -> void {
   case 0xffff'ff05: divu.dvdntl.byte(2) = data; return;
   case 0xffff'ff06: divu.dvdntl.byte(1) = data; return;
   case 0xffff'ff07: divu.dvdntl.byte(0) = data; {
+    if(divLatency) divu.doneAt = clockNow() + divLatency;
     if(divu.dvsr) {
       s32 dividend  = (s32)divu.dvdntl;
       s32 quotient  = dividend / (s32)divu.dvsr;
@@ -810,6 +813,7 @@ auto SH2::internalWriteByte(u32 address, n8 data) -> void {
   case 0xffff'ff15: case 0xffff'ff1d: divu.dvdntl.byte(2) = data; return;
   case 0xffff'ff16: case 0xffff'ff1e: divu.dvdntl.byte(1) = data; return;
   case 0xffff'ff17: case 0xffff'ff1f: divu.dvdntl.byte(0) = data; {
+    if(divLatency) divu.doneAt = clockNow() + divLatency;
     if(divu.dvsr) {
       s64 dividend  = (s64)divu.dvdnth << 32 | (s64)divu.dvdntl << 0;
       s64 quotient  = dividend / (s32)divu.dvsr;
