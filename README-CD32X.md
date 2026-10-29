@@ -190,16 +190,38 @@ SH2's own free-running timer. It covers:
 - a Sega CD command's round trip;
 - the shared bus: each SH2 access while the other SH2 hammers each memory.
 
-| Probe line (clocks an access) | ares as released | Console, RAM cart | Console, EverDrive |
+| Probe line (clocks an access) | ares as released | Console, RAM cart (28 Oct 2026) | Console, EverDrive |
 |---|---|---|---|
-| NOP / MUL.L / BRA+NOP | 1.0 / 1.0 / 2.0 | awaiting the photo | awaiting the photo |
-| CART RD.W / RD.L / LINE | 7.0 / 13.0 / 60.1 | | |
-| SDRM RD.W / WR.W / LINE | 1.0 / 1.0 / 13.1 | | |
-| FB RD.W / WR.W / WR.L | 6.0 / 5.0 / 9.0 | | |
-| FILL256 (clocks) | 384 / 400 | | |
-| FRAME / LINE (clocks) | 384,000 / 1,465 | | |
-| CD CMD (clocks) | 71,112 (EverDrive: 9,128) | | |
-| cart read, slave idle / slave reading the cart | 7.0 / 7.0 (no contention) | | |
+| MUL.L back to back / BRA+NOP | 1.0 / 2.0 | 3.8 / 3.0 | not measured |
+| CART RD.W / RD.L / LINE | 7.0 / 13.0 / 60.1 | 9.1 / 17.4 / 66.4 | |
+| SDRM RD.W (uncached) / WR.W / WR.L / LINE / cache hit | 1.0 / 1.0 / - / 13.1 / - | 11.2 / 1.5 / 2.0 / 11.3 / 1.5 | |
+| FB RD.W / WR.W alone / back to back | 6.0 / 5.0 / - | 8.2 / 1.5 / 4.8 (the VDP's FIFO) | |
+| FILL256 (clocks) | 384 / 400 | 800 | |
+| COMM read / write, VDP status read | - | 4.0 / 2.9, 8.1 | |
+| cart read: alone / while the other SH2 reads the cart / reads SDRAM / writes the FB / writes SDRAM | 7.0 (no contention) | 9.1 / 17.4 / 20.7 / 13.0 / 13.0 | |
+| SDRAM read, the same five cases | - | 11.2 / 20.0 / 23.3 / 15.6 / 15.6 | |
+| frame buffer write, the same five cases | - | 4.8 / 9.0 / 10.9 / 8.1 / 6.2 | |
+
+These are the values "console" uses (`ares/md/m32x/bus-internal.cpp`, with how each one is applied).
+
+### Where the console data comes from
+
+Every console number in this section, and every one gathered for the next calibration, with its source.
+All were taken on the owner's console (NTSC Sega CD + 32X; RAM cart unless the row says EverDrive).
+The repositories are MicroNut99's on GitHub; the videos and photos themselves and the games' data are
+not in any repository.
+
+| Source (repository: file, section) | What it measured on the console | How, when | In "console" now? |
+|---|---|---|---|
+| **CD32X-BootCamp**: `probe/` (`probe/README.md`) | each access kind's cost, by itself and against the other SH2 (the probe table above) | the timing probe V1 disc, a photo of its screen, 28 Oct 2026 | **yes**: every number in `bus-internal.cpp` |
+| **OpenLaraCD32X-REV_EDCD**: `README.md` "Frame rate" (v1.4 table), `docs/OPENLARA_CD32X_RELEASE.md` | fps and each stage's ms (logic, scene prep, drawing, waiting for the second SH2) in Caves, Lost Valley, a raptor fight and the T-rex; v1.0-1.3 before and after the screen split | the profiler build (`PROF=1`, v1.4r1), four console videos, 15 Oct 2026 | no: reference data to check it against (the OpenLara row above is part of it) |
+| **OpenJazzCD32X-REV**: `OPENJAZZ_CD32X_HANDOFF.md` (rounds J4-J23d), `docs/R7_FRAME_RATE.md`, `docs/CD32X_ADDENDUM_OPENJAZZ.md` | the game's own fps counter, build by build: J14e 3-7, J15 10-13 (Diamondus 12-13), J23 15-22, J23d 25-30 in open places and 12-18 in busy ones; Turtle Terror 1: 11, then 12-13 with the line-table renderer; the R5 and REV EverDrive rows above | console videos, 5-27 Oct 2026 (named by date and time, e.g. `1005261847`) | no: reference data (the Jazz rows above are part of it) |
+| **HurricanCD32X**: `docs/HURRICAN_CD32X_HANDOFF.md` "B1b on the console", `README.md` | the B1b benchmark part by part (RING 8.1-11.3 fps / 88-122 ms with effects 31.6-36.2 ms; FULL 7.4-8.5 fps with three 32X background layers 85 ms); about 19 clocks per keyed pixel read from the cart; the CD loading 42 KB/s; P1's timing line (the row above); P1b above 15 fps, P2 4-5 fps | B1b videos h2, h3 and h7 (by 10 Oct 2026); P1 a photo | no: reference data (the Hurrican row above is part of it) |
+| **The Sonic CD (2011) port**: `SONICCD_HANDOFF.md`, round S7c3 | the 2011 engine on the SH2 from the cart, drawing off: a steady 30 fps paced (every frame within 16.7-33.3 ms) | a console video (by 15 Oct 2026) | no: reference data (an upper bound for its game logic) |
+| **The manuals**: Sega's 32X hardware manual, Hitachi's SH7604 manual | wait states and the FIFO (32X); the instruction timings (SH-2) | - | the instruction timings (`component/processor/sh2/timing.hpp`) |
+
+The B1b and OpenLara profiler discs are no longer kept; both rebuild from their repositories with
+the games' data.
 
 ### Build commands
 
