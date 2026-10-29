@@ -1,5 +1,7 @@
-ares CD32X v1.3 - Real Sega 32X Hardware Timing, a menu switch (29 Oct 2026)
+ares CD32X v1.3.1 - a 32X+CD cartridge ROM loaded first runs from the EverDrive PRO (29 Oct 2026)
 
+- v1.3.1: **Load the `.32x` first, then the disc**: a `SEGA SSF` ROM that needs the Mega CD (the 32X+CD Plutonia cartridge, DOOM32XCD_V2) runs from the Mega EverDrive PRO chosen in Settings > Options, as on the PRO. Before, Options' cart was only used when the disc was loaded on its own, so this ROM ran as a read-only cartridge (1-2 fps, broken graphics). Any other ROM, or another cart type: as before.
+- v1.3.1: Settings > Firmware: the file picker starts in the `bios` folder next to ares.exe. The BIOS defaults (bios\bios_CD_U/J/E.bin) are unchanged.
 - v1.3: **Settings > Real Sega 32X Hardware Timing**: the 32X as the console runs it - its memory and instruction costs as the CD32X timing probe measured them on an NTSC Sega CD + 32X. Off: ares's own (faster) timing, as before. Takes effect at once, also in a running game, and is remembered. A first calibration: not yet checked against every game's console frame rate.
 - ares-headless: the same with ARES_32X_TIMING=console; --stats (frame rate and accesses per picture), --dump-sdram frame:file.
 
