@@ -1,4 +1,10 @@
 #include "../desktop-ui.hpp"
+
+#ifdef CORE_MD
+namespace ares::MegaDrive {
+  auto option(string name, string value) -> bool;   //"32X Timing" (the Settings menu's real hardware timing)
+}
+#endif
 namespace Instances { Instance<Presentation> presentation; }
 Presentation& presentation = Instances::presentation();
 
@@ -294,6 +300,15 @@ Presentation::Presentation() {
 
   muteAudioSetting.setText("Mute Audio").setChecked(settings.audio.mute).onToggle([&] {
     settings.audio.mute = muteAudioSetting.checked();
+  });
+  //the 32X as the console runs it: its memory and instruction costs as the CD32X timing probe measured them on
+  //an NTSC Sega CD + 32X (README-CD32X.md "Console timing"); off: upstream's timing. Takes effect at once.
+  realHardwareTimingSetting.setText("Real Sega 32X Hardware Timing").setChecked(settings.megadrive.realHardwareTiming).onToggle([&] {
+    settings.megadrive.realHardwareTiming = realHardwareTimingSetting.checked();
+    #ifdef CORE_MD
+    ares::MegaDrive::option("32X Timing", settings.megadrive.realHardwareTiming ? "console" : "off");
+    #endif
+    program.showMessage(settings.megadrive.realHardwareTiming ? "32X timing: real Sega hardware" : "32X timing: ares (fast)");
   });
   showStatusBarSetting.setText("Show Status Bar").setChecked(settings.general.showStatusBar).onToggle([&] {
     settings.general.showStatusBar = showStatusBarSetting.checked();
