@@ -143,8 +143,8 @@ upstream's timing, which runs 32X games faster than the console).
   benchmark, checked with OpenLara): see "Calibration against the games" below.
   `ares/md/m32x/bus-internal.cpp` lists every number.
 - v1.3/v1.4's "console" ran the games about 30 % slower than the console; v1.5 is within the
-  console's own ranges for Hurrican B1 and within about 10 % for OpenLara (its scene preparation
-  about 25 % fast; still open).
+  console's own ranges for Hurrican B1 and for OpenLara in the same place (Caves, the rebuilt
+  profiler disc filmed on the console on 29 Oct).
 
 ### Why the probe: the 32X's bus arbitration is not fully documented
 
@@ -218,7 +218,7 @@ not in any repository.
 | Source (repository: file, section) | What it measured on the console | How, when | In "console" now? |
 |---|---|---|---|
 | **CD32X-BootCamp**: `probe/` (`probe/README.md`) | each access kind's cost, by itself and against the other SH2 (the probe table above) | the timing probe V1 disc, a photo of its screen, 28 Oct 2026 | **yes**: every number in `bus-internal.cpp` |
-| **OpenLaraCD32X-REV_EDCD**: `README.md` "Frame rate" (v1.4 table), `docs/OPENLARA_CD32X_RELEASE.md` | fps and each stage's ms (logic, scene prep, drawing, waiting for the second SH2) in Caves, Lost Valley, a raptor fight and the T-rex; v1.0-1.3 before and after the screen split | the profiler build (`PROF=1`, v1.4r1), four console videos, 15 Oct 2026 | checked (v1.5): within about 10 %, scene preparation about 25 % fast ("Calibration against the games") |
+| **OpenLaraCD32X-REV_EDCD**: `README.md` "Frame rate" (v1.4 table), `docs/OPENLARA_CD32X_RELEASE.md` | fps and each stage's ms (logic, scene prep, drawing, waiting for the second SH2) in Caves, Lost Valley, a raptor fight and the T-rex; v1.0-1.3 before and after the screen split | the profiler build (`PROF=1`, v1.4r1), four console videos, 15 Oct 2026 | checked (v1.5): the 29 Oct videos of the rebuilt profiler disc (Caves' start) match ("Calibration against the games") |
 | **OpenJazzCD32X-REV**: `OPENJAZZ_CD32X_HANDOFF.md` (rounds J4-J23d), `docs/R7_FRAME_RATE.md`, `docs/CD32X_ADDENDUM_OPENJAZZ.md` | the game's own fps counter, build by build: J14e 3-7, J15 10-13 (Diamondus 12-13), J23 15-22, J23d 25-30 in open places and 12-18 in busy ones; Turtle Terror 1: 11, then 12-13 with the line-table renderer; the R5 and REV EverDrive rows above | console videos, 5-27 Oct 2026 (named by date and time, e.g. `1005261847`) | not yet: the R5 16 MB build could not be rerun in today's ares |
 | **HurricanCD32X**: `docs/HURRICAN_CD32X_HANDOFF.md` "B1b on the console", `README.md` | the B1b benchmark part by part (RING 8.1-11.3 fps / 88-122 ms with effects 31.6-36.2 ms; FULL 7.4-8.5 fps with three 32X background layers 85 ms); about 19 clocks per keyed pixel read from the cart; the CD loading 42 KB/s; P1's timing line (the row above); P1b above 15 fps, P2 4-5 fps | B1b videos h2, h3 and h7 (by 10 Oct 2026); P1 a photo | **yes** (v1.5): B1b's numbers set the shared-bus model ("Calibration against the games") |
 | **The Sonic CD (2011) port**: `SONICCD_HANDOFF.md`, round S7c3 | the 2011 engine on the SH2 from the cart, drawing off: a steady 30 fps paced (every frame within 16.7-33.3 ms) | a console video (by 15 Oct 2026) | no: reference data (an upper bound for its game logic) |
@@ -243,11 +243,12 @@ not in any repository).
 | Hurrican B1b, FULL, sprites off: fps | 7.4-8.5 | 6.2-6.7 | **7.9-9.4** | 8.5-9.9 |
 | ... frame | 116-133 ms | 147-161 | **105-126** | 100-117 |
 | ... three background layers (BG) | 84.6-85.1 ms | 110-111 | **85.4-86.1** | 77.5-77.8 |
-| OpenLara v1.4r1 profiler build, Caves (videos, 15 Oct): fps | 10-15 | 13 | **15-17** | 24 |
-| ... frame (T) | 64-95 ms | 74 | **59-65** | 41 |
-| ... drawing (D) | 46-50 ms | 53 | **41-46** | 25 |
-| ... game logic (L) | 7-12 ms | 8 | **5-7** | 3 |
-| ... scene preparation (X) | 13-14 ms | 10 | **10** | 7 |
+| OpenLara v1.4r1 profiler build (the rebuilt disc), Caves, the snow at the start (videos 1029261349, 1029261350, 29 Oct): fps | 15-19, mostly 15-17 | 13 | **15-17** | 24 |
+| ... frame (T) | 50-66 ms, mostly 58-66 | 74 | **59-65** | 41 |
+| ... drawing (D) | 33-46 ms, mostly 35-43 | 53 | **41-46** | 25 |
+| ... game logic (L) | 4-9 ms | 8 | **5-7** | 3 |
+| ... scene preparation (X) | 9-11 ms where ares was measured, 11-18 walking on | 10 | **10** | 7 |
+| OpenLara v1.4r1, Caves further in, Lost Valley, fights (videos, 15 Oct): frame | 64-111 ms | - | not rerun (other places) | - |
 | The probe's shared-bus lines (photo, 28 Oct): cart read while the other SH2 reads the cart / SDRAM / writes the FB / SDRAM | 17.4 / 20.7 / 13.0 / 13.0 | 16.4 / 19.9 / 12.3 / 12.3 | **16.0 / 19.3 / 12.0 / 12.0** | 7.0 (no contention) |
 
 What the games showed, and what changed:
@@ -262,9 +263,12 @@ What the games showed, and what changed:
   DOOM's `FixedDiv` does.
 - **Tried and left out:** a frame buffer read waiting for the write FIFO to empty (no change in either
   game).
-- **Still open:** OpenLara's scene preparation (X, the main SH2 alone) is 10 ms in every model against
-  13-14 on the console. Jazz R5 16 MB (the README's Jazz rows) could not be rerun: rebuilt from its
-  commit, its common pack no longer loads into the 16 MB cart in today's ares (to look at).
+- **OpenLara:** the 15 Oct videos (frame 64-95 ms in Caves) were taken further into the level. Filmed
+  again on 29 Oct with the rebuilt profiler disc in the snow at Caves' start - where ares was measured -
+  the console shows the same as ares v1.5: frame 58-66 ms (ares 59-65), scene preparation 9-11 ms where
+  ares stood (ares 10); ares draws about 5 % slower there (41-46 ms against mostly 35-43).
+- **Still open:** Jazz R5 16 MB (the README's Jazz rows) could not be rerun: rebuilt from its commit,
+  its common pack no longer loads into the 16 MB cart in today's ares (to look at).
 
 How each was run (`ARES_32X_TIMING=console`, or a key list such as `console`'s with one key changed):
 ```sh
