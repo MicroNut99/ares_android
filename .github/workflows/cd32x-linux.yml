@@ -1,0 +1,77 @@
+name: ares CD32X (Linux)
+# Builds desktop ares (GTK3) and ares-headless for Linux x64 and attaches them to a release of this
+# repository as ares-cd32x-linux-x64-<tag>.tar.gz. Run by hand (Actions > ares CD32X (Linux) > Run workflow).
+# The same steps as the build checked by hand on Ubuntu 24.04 (2 Nov 2026): the GUI starts, ares-headless boots
+# a CD32X disc with the EverDrive launcher.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'The release to attach the Linux build to (e.g. cd32x-v1.5)'
+        required: true
+        default: 'cd32x-v1.5'
+permissions:
+  contents: write
+jobs:
+  linux-x64:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        fetch-depth: 0
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y -qq
+        sudo apt-get install -y -qq ninja-build libgtk-3-dev libsdl2-dev libgl-dev libxrandr-dev libudev-dev \
+          libpulse-dev libasound2-dev libopenal-dev libao-dev
+    - name: Build ares (desktop)
+      run: |
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DARES_BUILD_LOCAL=OFF -DENABLE_CCACHE=OFF \
+          -DARES_PRECOMPILE_HEADERS=ON -DARES_BUILD_OPTIONAL_TARGETS=OFF
+        ninja -C build desktop-ui
+    - name: Build ares-headless
+      run: |
+        cmake -S android/native -B build-headless -G Ninja -DCMAKE_BUILD_TYPE=Release -DARES_ANDROID_HARNESS=ON
+        ninja -C build-headless ares-headless
+    - name: Package
+      env:
+        TAG: ${{ github.event.inputs.release_tag }}
+      run: |
+        P=pkg/ares-cd32x-linux-x64
+        mkdir -p $P
+        cp -r build/rundir/* $P/
+        rm -f $P/bin/sourcery
+        cp build-headless/ares-headless $P/bin/
+        strip $P/bin/ares $P/bin/ares-headless
+        cp README-CD32X.md $P/
+        mkdir -p $P/bin/Systems $P/bin/bios
+        printf '%s\n' "ares keeps its system files here:" \
+          "  RAM Cart 16 MB-1.ram ... RAM Cart 16 MB-9.ram   the nine 16 MB RAM carts (16MB-PCB-CD32X)" \
+          "  EverDrive PRO 16 MB-1.ram ... -9.ram            the nine Mega EverDrive PRO carts" \
+          "  Mega CD 32X.sys, Mega CD.sys, ...               Sega CD backup RAM and other system data" \
+          "Keep this folder next to the ares program (bin/)." > $P/bin/Systems/README.txt
+        printf '%s\n' "Put your Sega CD BIOS files here, with these names:" \
+          "  bios_CD_U.bin   US (NTSC-U)" "  bios_CD_J.bin   Japan (NTSC-J)" "  bios_CD_E.bin   Europe (PAL)" \
+          "ares picks them up at the next start (or Settings > Firmware > Scan)." \
+          "The 32X boot ROMs are built into ares." > $P/bin/bios/README.txt
+        printf '%s\n' "ares CD32X $TAG for Linux x64 (built from ${GITHUB_SHA::7} on Ubuntu 24.04, Release, generic x86-64)." "" \
+          "  bin/ares            the emulator (GTK3 window): ./bin/ares" \
+          "  bin/ares-headless   the scripted runner (the one the CD32X ports are tested with)" \
+          "  bin/bios/           your Sega CD BIOS (bios_CD_U.bin ...), see bin/bios/README.txt" \
+          "  bin/Systems/        RAM carts, EverDrive carts, backup RAM" \
+          "  share/ares/         Database and Shaders (keep share/ next to bin/)" "" \
+          "Needs (Ubuntu / Debian names):" \
+          "  sudo apt install libgtk-3-0 libopenal1 libao4 libasound2t64 libpulse0 libudev1 libgl1 libxrandr2" \
+          "Shaders are off in this build (no librashader for Linux here); the picture is unaffected." \
+          "Real Sega 32X Hardware Timing, the EverDrive launcher and the RAM carts are in Settings, as on Windows." \
+          "Headless: bin/ares-headless --game disc.cue --machine cd32x --bios-us bios.bin --ramcart cart.ram --ramcart-size 16" \
+          "          (EverDrive: --ramcart-type everdrive --ramcart-boot EDCD.32X); ARES_32X_TIMING=console for the console timing." \
+          > $P/README-LINUX.txt
+        tar czf "ares-cd32x-linux-x64-$TAG.tar.gz" -C pkg ares-cd32x-linux-x64
+    - name: Attach to the release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ github.event.inputs.release_tag }}
+      run: gh release upload "$TAG" "ares-cd32x-linux-x64-$TAG.tar.gz" --clobber
