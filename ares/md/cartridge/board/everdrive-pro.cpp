@@ -66,6 +66,17 @@
 //    the registers and C itself. After a reset the launcher is put back in bank 0, as starting it
 //    again from the EverDrive menu would.
 
+//The cart geometry engine of Jumping Flash CD32X (a custom mega-pro.rbf on the console: krikzz's SSF
+//mapper plus the engine): the rbf model "jfgeo" (a mega-pro.rbf.ares sidecar saying jfgeo), or ARES_JFGEO=1.  The engine is JumpingFlash_CD32X's reference model,
+//fpga/jfgeo/jfgeo.c (copied into jfgeo/; keep the two the same): window 0's fourth 512 KB, cart
+//0x180000-0x1fffff, is the engine whatever bank is switched there; jfgeo.h has the register map.
+//Timing: a GO makes the frame at once (into the buffer the SH2s are not reading) and the engine
+//reports busy for an estimate of the FPGA's time: 50 MHz, a PSRAM word read 4 clocks, an SRAM word
+//write 1, 2 more per vertex.  Not checked on a console.
+namespace JfGeo {
+#include "jfgeo/jfgeo.c"
+}
+
 struct EverDrivePro : Interface {
   using Interface::Interface;
   Memory::Writable<n16> ram;     //16 MB: bank n is words n << 18 ... (n << 18) + 0x3ffff
@@ -107,7 +118,7 @@ struct EverDrivePro : Interface {
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
   };
-  static constexpr const char* rbfModels[] = {"ssf"};    //the models this board has (more as cores are added)
+  static constexpr const char* rbfModels[] = {"ssf", "jfgeo"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -136,6 +147,55 @@ struct EverDrivePro : Interface {
       print("[EverDrive PRO] mega-pro.rbf: ", name, " (sha256 ", digest.slice(0, 16), "...)", model ? string{" - model '", model, "'"} : string{},
             ": NOT modelled - ares runs the built-in SSF mapper; the console would run that file\n");
     }
+  //the cart geometry engine (see JfGeo above)
+  boolean geoOn;
+  u16 geoParam[JFGEO_NPARAM] = {};
+  u32 geoIndex = 0;
+  u8 geoRam[0x40000] = {};       //the engine's SRAM as the window shows it: buffer 0 at 0, buffer 1 at 0x20000
+  u64 geoBusy = 0;               //Thread::clock units of engine time left
+  u64 geoLast = 0;               //the clock at the last access (the scheduler lowers all clocks now and then,
+                                 //so the time is counted in steps between accesses, a step back = none)
+  u8 geoFrames = 0;
+  static auto geoRead(void* ctx, u32 a) -> u16 {
+    auto self = (EverDrivePro*)ctx;
+    return self->ram[(a >> 1) & 0x7fffff];
+  }
+  auto geoNow() -> u64 {
+    if(!cpu.active()) return m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
+    return cpu.clock();
+  }
+  auto geoTick() -> void {
+    u64 now = geoNow();
+    if(now > geoLast) { u64 d = now - geoLast; geoBusy = geoBusy > d ? geoBusy - d : 0; }
+    geoLast = now;
+  }
+  auto geoStatus() -> n16 {
+    return (geoBusy ? 1 : 0) | geoFrames << 8;
+  }
+  auto geoAccess(u32 local) -> n16 {
+    geoTick();
+    if(local < 0x1c0000) {
+      u32 a = local - 0x180000;
+      return geoRam[a] << 8 | geoRam[a + 1];
+    }
+    if(local < 0x1e0000) {
+      if(geoIndex < JFGEO_NPARAM) geoParam[geoIndex++] = (local - 0x1c0000) >> 1;
+      return geoStatus();
+    }
+    if(local == 0x1e0000) { geoIndex = 0; return geoStatus(); }
+    if(local == 0x1e0002) {
+      JfGeo::JfGeoStats st;
+      u8* out = geoRam + (geoParam[15] & 1) * 0x20000;
+      JfGeo::jfgeo_frame(geoRead, this, geoParam, out, &st);
+      u64 clocks = (u64)st.mem_reads * 4 + st.mem_writes + st.vertices * 2;
+      geoBusy = (u64)((u128)Thread::Second * clocks / 50'000'000);
+      geoFrames++;
+      if(auto v = getenv("ARES_JFGEO_LOG"); v && v[0] == '1')
+        print("jfgeo: frame ", geoFrames, " objects ", st.drawn_objects, " vertices ", st.vertices,
+              " written ", st.written, " clocks ", clocks, "\n");
+      return geoStatus();
+    }
+    return geoStatus();
   }
 
   auto load() -> void override {
@@ -146,6 +206,11 @@ struct EverDrivePro : Interface {
     //with 0xffff hid the cartridge boot's Word RAM bug, 25 Oct 2026)
     for(u32 address : range(ram.size())) ram.write(address, (n16)(address * 0x9e37 + 0x5a5a));
     ramCart = pak->attribute("ramcart").boolean();
+    //Jumping Flash's engine: on when the mega-pro.rbf beside the launcher is its core (a "jfgeo" sidecar,
+    //fpga/jfgeo/quartus/build_jfgeo.bat writes it), as on the console; ARES_JFGEO=1 / 0 forces it on / off
+    geoOn = rbfModel == "jfgeo";
+    if(auto v = getenv("ARES_JFGEO"); v && v[0]) geoOn = v[0] == '1';
+    if(geoOn) print("[EverDrive PRO] Jumping Flash cart geometry engine (jfgeo) in window 3\n");
     cdBoot  = ramCart && !pak->attribute("bootable").boolean();
     writeProtect = pak->attribute("writeProtect").boolean();
 
@@ -208,6 +273,7 @@ struct EverDrivePro : Interface {
   }
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
+    if(geoOn) { u32 local = (n22)address; if(local >= 0x180000 && local < 0x200000) return geoAccess(local & ~1u); }
     u32 word = offset(address) >> 1;
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
@@ -323,6 +389,12 @@ struct EverDrivePro : Interface {
     s(distFirst);
     s(distLast);
     s(distData);
+    s(geoParam);
+    s(geoIndex);
+    s(geoRam);
+    s(geoBusy);
+    s(geoLast);
+    s(geoFrames);
     if(s.reading()) cartridge->cartOff = cartOff;
   }
 };
