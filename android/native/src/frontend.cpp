@@ -239,6 +239,19 @@ struct Session::Impl : ares::Platform {
         ramCartPak->setAttribute("bootable", true);  //the launcher boots first (CART_IN asserted)
         ramCartPak->append("program.rom", rom);
         log("EverDrive PRO: booting the launcher " + options.boot + " first");
+        //the cart's FPGA configuration: mega-pro.rbf in the launcher's folder, as the EverDrive menu
+        //loads it (everdrive-pro.cpp identifyRbf)
+        if(!options.noRbf) {
+          auto cut = options.boot.find_last_of("/\\");
+          auto dir = cut == std::string::npos ? std::string{} : options.boot.substr(0, cut + 1);
+          auto rbf = nall::file::read(toNall(dir + "mega-pro.rbf"));
+          if(!rbf.empty()) {
+            ramCartPak->append("mega-pro.rbf", rbf);
+            auto side = nall::file::read(toNall(dir + "mega-pro.rbf.ares"));
+            if(!side.empty()) ramCartPak->append("mega-pro.rbf.ares", side);
+            log("EverDrive PRO: " + dir + "mega-pro.rbf beside the launcher (the cart's FPGA configuration)");
+          }
+        }
       }
     } else if(!options.boot.empty()) {
       return "A launcher ROM (--ramcart-boot) needs the EverDrive PRO cart (--ramcart-type everdrive).";

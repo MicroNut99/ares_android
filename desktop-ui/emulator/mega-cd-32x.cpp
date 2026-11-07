@@ -45,7 +45,7 @@ auto ramCartLocation(u32 slot, u32 type) -> string {
 //the 16 MB cart `slot` (1-9), from its file; a new cart is blank (0xff). `launcher`: the ROM a
 //Mega EverDrive PRO boots first (type 1 only); none: the disc boots. Also used by Mega 32X:
 //a ROM loaded first goes into the EverDrive PRO chosen in Settings > Options.
-auto makeRamCartPak(u32 slot, const std::vector<u8>& launcher, string& cartFile) -> std::shared_ptr<vfs::directory> {
+auto makeRamCartPak(u32 slot, const std::vector<u8>& launcher, string& cartFile, const string& launcherPath) -> std::shared_ptr<vfs::directory> {
   if(slot < 1 || slot > 9) slot = 1;
   const u32 size = 16_MiB;
   u32 type = settings.megadrive.ramCartType;
@@ -64,6 +64,15 @@ auto makeRamCartPak(u32 slot, const std::vector<u8>& launcher, string& cartFile)
     //itself and hands over to the disc's boot stack - what the console does (CD32X BootCamp docs/12)
     ramCart->setAttribute("bootable", true);  //CART_IN asserted: the launcher boots
     ramCart->append("program.rom", launcher);
+    //the cart's FPGA configuration: mega-pro.rbf in the launcher's folder, as the EverDrive menu loads it
+    //(ares/md/cartridge/board/everdrive-pro.cpp identifyRbf)
+    if(launcherPath) {
+      string dir = Location::path(launcherPath);
+      if(auto rbf = file::read({dir, "mega-pro.rbf"}); !rbf.empty()) {
+        ramCart->append("mega-pro.rbf", rbf);
+        if(auto side = file::read({dir, "mega-pro.rbf.ares"}); !side.empty()) ramCart->append("mega-pro.rbf.ares", side);
+      }
+    }
   }
   std::vector<u8> memory(size, 0xff);
   auto existing = file::read(cartFile);
@@ -85,7 +94,7 @@ auto MegaCD32X::makeRamCart(u32 slot) -> void {
   if(settings.megadrive.ramCartType == 1 && settings.megadrive.ramCartLauncher) {
     launcher = file::read(settings.megadrive.ramCartLauncher);
   }
-  ramCart = makeRamCartPak(slot, launcher, ramCartFile);
+  ramCart = makeRamCartPak(slot, launcher, ramCartFile, settings.megadrive.ramCartLauncher);
 }
 
 auto MegaCD32X::saveRamCart() -> void {

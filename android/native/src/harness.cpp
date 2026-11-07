@@ -4,6 +4,7 @@
 //                --bios-us us.bin [--bios-jp jp.bin] [--bios-eu eu.bin]
 //                [--ramcart cart.bin] [--ramcart-size 4|8|16] [--frames 3600]
 //                [--ramcart-type pcb|everdrive] [--ramcart-boot launcher.bin]   (Mega EverDrive PRO)
+//                [--no-rbf]   (ignore a mega-pro.rbf beside the launcher: the cart's FPGA configuration)
 //                [--press frame:buttons ...] [--screenshot frame:file.ppm ...]
 //                [--wav out.wav] [--home dir] [--interpreter]
 //                [--save-state frame:file] [--load-state file] [--stats] [--profile from:file]
@@ -114,6 +115,7 @@ int main(int argc, char** argv) {
     else if(a == "--ramcart-size") request.ramCart.sizeMiB = (uint32_t)atoi(next().c_str());
     else if(a == "--ramcart-type") request.ramCart.everdrive = next() == "everdrive";
     else if(a == "--ramcart-boot") request.ramCart.boot = next();
+    else if(a == "--no-rbf") request.ramCart.noRbf = true;
     else if(a == "--frames") frames = (uint32_t)atoi(next().c_str());
     else if(a == "--interpreter") request.recompiler = false;
     else if(a == "--wav") wavFile = next();

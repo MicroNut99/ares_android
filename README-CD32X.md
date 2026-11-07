@@ -81,6 +81,32 @@ ares models since this build:**
   turns them off.
 - Still a choice in ares: byte writes to the registers, a console reset.
 
+### The cart's FPGA configuration: `mega-pro.rbf` (7 Nov 2026)
+
+The EverDrive PRO's FPGA (Cyclone IV E EP4CE15) is what its configuration file makes it. **If a file named
+`mega-pro.rbf` sits in the same folder as the ROM the EverDrive menu starts - a CD32X launcher
+`EDCD_*.32X` too - the menu loads it instead of the built-in mapper** (krikzz/mega-ed-pub `fpga/README.md`).
+Console, 7 Nov 2026: Metal Slug CD32X v46 boots and plays with krikzz's `map_ssf` build beside its launcher.
+This is how a port puts its own hardware on the cart (MicroNut99/FBNeo_MetalSlug `fpga/README_FOR_AI.md`).
+
+ares finds it on its own: **at load it looks for `mega-pro.rbf` in the launcher's folder** (headless
+`--ramcart-boot`, the Windows/Linux *EverDrive launcher* setting, or the folder of a `SEGA SSF` ROM loaded
+first into the EverDrive) and tells which configuration it is by its SHA-256. ares does not run a bitstream:
+it models what the configuration is.
+
+| `mega-pro.rbf` | ares |
+|---|---|
+| none | the built-in SSF mapper, as before |
+| krikzz's `map_ssf` (sha256 `00bb72f4...`; also what Quartus 25.1 Lite builds from his sources, byte for byte) | the SSF mapper - the same run, picture for picture (checked: Metal Slug v46, frame 2400 identical with and without it) |
+| krikzz's `map_smd`, `map_smd_cd`, `map_svp`, `map_mcd`, `SE` | recognised, not modelled: a warning, and ares runs the SSF mapper (the console would run that file) |
+| one of our own, with a `mega-pro.rbf.ares` beside it (one line: the model's name) | that model, when this build has it; otherwise the warning. Models so far: `ssf` |
+| anything else | the warning; the SSF mapper |
+
+The log says what it found: `[EverDrive PRO] mega-pro.rbf: krikzz map_ssf (the extended SSF mapper) (sha256
+00bb72f427bcc35b...): modelled as 'ssf'`. `--no-rbf` (headless) or `ARES_RBF=0` ignores the file. A port that
+adds an engine to the cart adds its model to `ares/md/cartridge/board/everdrive-pro.cpp` (`rbfModels`) on a
+branch, with the console's word on it - a green ares run is never a console pass.
+
 ## Use (Android)
 
 1. Install `ares-cd32x-android-arm64.apk` from the **`android-latest`** release

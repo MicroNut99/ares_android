@@ -88,7 +88,58 @@ struct EverDrivePro : Interface {
 
   static constexpr u32 SaveBank = 31;
 
+  //The cart's FPGA configuration, mega-pro.rbf (7 Nov 2026, Metal Slug CD32X docs/14 and fpga/README_FOR_AI.md):
+  //the EverDrive menu loads the file of that name from the folder of the ROM it starts - a CD32X launcher
+  //(EDCD_*.32X) included - into the FPGA instead of its built-in mapper (krikzz/mega-ed-pub fpga/README.md;
+  //console, 7 Nov 2026: Metal Slug v46 boots with krikzz's map_ssf beside its launcher).  The frontends put
+  //that file in the pak as "mega-pro.rbf" (and a "mega-pro.rbf.ares" beside it, a line naming the model,
+  //for a configuration of our own).  ares does not run a bitstream: it knows each configuration by its
+  //SHA-256 and models what that configuration is.  Off with ARES_RBF=0 (the file is ignored).
+  string rbfModel;        //"" (no file: the built-in SSF mapper), "ssf", or what it was found to be
+  struct RbfKnown { const char* sha256; const char* name; const char* model; };
+  static constexpr RbfKnown rbfKnown[] = {
+    //krikzz/mega-ed-pub 7064f45, fpga/fpga_pro/*/output_files/mega-pro.rbf (MIT); map_ssf also built
+    //byte-identical with Quartus 25.1std Lite on the owner's PC (Metal Slug docs/14)
+    {"00bb72f427bcc35ba7486386a9f65cdce6ce9089981716e0f386fb8563946327", "krikzz map_ssf (the extended SSF mapper)", "ssf"},
+    {"6c239eb96f07806e560868a11002076ca5124b693d0385ac1d50b943022438da", "krikzz map_smd (the plain Genesis mapper)", ""},
+    {"dc856c994b6f677d92c56e0fdae26e7b3c0d9d12fb53ec744f7d2305712dfc02", "krikzz map_smd_cd (Genesis mapper, MD+)", ""},
+    {"d1616d7617932b409c01605f12344af275fec8c25b0a69eca50c20aaef137b75", "krikzz map_svp (Virtua Racing's SVP)", ""},
+    {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
+    {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
+  };
+  static constexpr const char* rbfModels[] = {"ssf"};    //the models this board has (more as cores are added)
+
+  auto identifyRbf() -> void {
+    rbfModel = "";
+    auto fp = pak->read("mega-pro.rbf");
+    if(!fp) return;
+    if(auto e = getenv("ARES_RBF"); e && string{e} == "0") { print("[EverDrive PRO] mega-pro.rbf ignored (ARES_RBF=0)\n"); return; }
+    std::vector<u8> data(fp->size());
+    fp->read({data.data(), data.size()});
+    string digest = Hash::SHA256(data).digest();
+    string name, model;
+    for(auto& k : rbfKnown) if(digest == k.sha256) { name = k.name; model = k.model; }
+    if(auto side = pak->read("mega-pro.rbf.ares")) {     //a configuration of our own: its model by name
+      string line;
+      for(u32 n : range(side->size())) { char c = side->read(); if(c == '\n' || c == '\r') break; line.append(c); }
+      line.strip();
+      if(line) { model = line; if(!name) name = {"our own configuration (", line, ")"}; }
+    }
+    bool known = false;
+    for(auto m : rbfModels) if(model == m) known = true;
+    if(!name) name = "an unknown configuration";
+    if(known) {
+      rbfModel = model;
+      print("[EverDrive PRO] mega-pro.rbf: ", name, " (sha256 ", digest.slice(0, 16), "...): modelled as '", model, "'\n");
+    } else {
+      rbfModel = "ssf";
+      print("[EverDrive PRO] mega-pro.rbf: ", name, " (sha256 ", digest.slice(0, 16), "...)", model ? string{" - model '", model, "'"} : string{},
+            ": NOT modelled - ares runs the built-in SSF mapper; the console would run that file\n");
+    }
+  }
+
   auto load() -> void override {
+    identifyRbf();
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
     //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND

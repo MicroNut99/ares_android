@@ -45,6 +45,7 @@ struct RamCart {
   std::string boot;        //EverDrive only: a launcher ROM, booted first from bank 0; it sets the
                            //mapper and releases CART_IN itself. Empty: the disc boots at once, with
                            //the EverDrive as a launcher would leave it
+  bool noRbf = false;      //EverDrive: ignore a mega-pro.rbf beside the launcher (--no-rbf)
 };
 
 struct LoadRequest {

@@ -1,5 +1,5 @@
 //mega-cd-32x.cpp: the RAM cart / Mega EverDrive PRO from Settings > Options
-auto makeRamCartPak(u32 slot, const std::vector<u8>& launcher, string& cartFile) -> std::shared_ptr<vfs::directory>;
+auto makeRamCartPak(u32 slot, const std::vector<u8>& launcher, string& cartFile, const string& launcherPath) -> std::shared_ptr<vfs::directory>;
 auto saveRamCartPak(std::shared_ptr<vfs::directory> ramCart, const string& cartFile) -> void;
 
 struct Mega32X : Emulator {
@@ -95,7 +95,7 @@ auto Mega32X::load() -> LoadResult {
       if(auto fp = game->pak->read("program.rom"); fp && fp->size() >= 0x200
       && !memory::compare(fp->data() + 0x100, "SEGA SSF", 8)) {
         std::vector<u8> rom(fp->data(), fp->data() + fp->size());
-        ramCart = makeRamCartPak(settings.megadrive.ramCartSlot, rom, ramCartFile);
+        ramCart = makeRamCartPak(settings.megadrive.ramCartSlot, rom, ramCartFile, configuration.game);
       }
     }
   } else {
