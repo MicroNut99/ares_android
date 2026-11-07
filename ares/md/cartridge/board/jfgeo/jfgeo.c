@@ -7,7 +7,8 @@
  *   2. a counting sort on the depth step (stable: equal steps keep the image's order).
  *   3. each object in that order: its vertices ((M (o + v - camera)) >> 16: half scale, x / z the same),
  *      projected: rz = 11796480 / z (FOCAL << 16), x and y clamped to +-8 z, sx = 160 + (x rz >> 16),
- *      sy = 112 + (y rz >> 16); z < 32 (NEAR halved): the vertex is behind, its triangles are dropped.
+ *      sy = 112 + (y rz >> 16); z < 32 (NEAR halved): the vertex is behind, its triangles are dropped; so is
+ *      z > 65535 (impossible inside FAR; it keeps the hardware's products within 18 x 18 and 20 x 20 bits).
  *   4. its triangles: dropped when turned away or under 1 pixel (twice the area > -MIN_AREA2), then the
  *      corners sorted by y, dropped when off the screen; written into list A (y0 < split) and / or list B
  *      (y2 > split).
@@ -113,7 +114,7 @@ int jfgeo_frame(JfGeoRead rd, void *ctx, const uint16_t *p, uint8_t *out, JfGeoS
                 q[r] = asr((int64_t)m[3 * r] * w[0] + (int64_t)m[3 * r + 1] * w[1] + (int64_t)m[3 * r + 2] * w[2], 16);
             int32_t z = q[2];
             S->vertices++;
-            if (z < JFGEO_NEAR / 2) { sx[v] = 0; sy[v] = -32768; continue; }
+            if (z < JFGEO_NEAR / 2 || z > 65535) { sx[v] = 0; sy[v] = -32768; continue; }
             int32_t rz = (int32_t)(((uint32_t)JFGEO_FOCAL << 16) / (uint32_t)z);
             int32_t lim = z * 8, x = q[0], y = q[1];
             if (x > lim) x = lim;

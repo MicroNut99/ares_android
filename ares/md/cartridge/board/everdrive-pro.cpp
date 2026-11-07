@@ -71,8 +71,9 @@
 //fpga/jfgeo/jfgeo.c (copied into jfgeo/; keep the two the same): window 0's fourth 512 KB, cart
 //0x180000-0x1fffff, is the engine whatever bank is switched there; jfgeo.h has the register map.
 //Timing: a GO makes the frame at once (into the buffer the SH2s are not reading) and the engine
-//reports busy for an estimate of the FPGA's time: 50 MHz, a PSRAM word read 4 clocks, an SRAM word
-//write 1, 2 more per vertex.  Not checked on a console.
+//reports busy for an estimate of the FPGA's time at 50 MHz, from the Verilog in Verilator with the
+//console on the cart (fpga/jfgeo/sim/tb_cart.cpp, World 1-1's start view 554k clocks): 12 clocks a
+//PSRAM read, 6 an SRAM write, 40 a vertex, 8 a triangle.  Not checked on a console.
 namespace JfGeo {
 #include "jfgeo/jfgeo.c"
 }
@@ -139,7 +140,7 @@ struct EverDrivePro : Interface {
       JfGeo::JfGeoStats st;
       u8* out = geoRam + (geoParam[15] & 1) * 0x20000;
       JfGeo::jfgeo_frame(geoRead, this, geoParam, out, &st);
-      u64 clocks = (u64)st.mem_reads * 4 + st.mem_writes + st.vertices * 2;
+      u64 clocks = (u64)st.mem_reads * 12 + (u64)st.mem_writes * 6 + (u64)st.vertices * 40 + (u64)st.triangles * 8;
       geoBusy = (u64)((u128)Thread::Second * clocks / 50'000'000);
       geoFrames++;
       if(auto v = getenv("ARES_JFGEO_LOG"); v && v[0] == '1')
