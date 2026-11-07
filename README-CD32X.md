@@ -99,13 +99,23 @@ it models what the configuration is.
 | none | the built-in SSF mapper, as before |
 | krikzz's `map_ssf` (sha256 `00bb72f4...`; also what Quartus 25.1 Lite builds from his sources, byte for byte) | the SSF mapper - the same run, picture for picture (checked: Metal Slug v46, frame 2400 identical with and without it) |
 | krikzz's `map_smd`, `map_smd_cd`, `map_svp`, `map_mcd`, `SE` | recognised, not modelled: a warning, and ares runs the SSF mapper (the console would run that file) |
-| one of our own, with a `mega-pro.rbf.ares` beside it (one line: the model's name) | that model, when this build has it; otherwise the warning. Models so far: `ssf` |
+| one of our own, with a `mega-pro.rbf.ares` beside it (one line: the model's name) | that model, when this build has it; otherwise the warning. Models so far: `ssf`, `jfgeo` |
+| Jumping Flash CD32X's core (sha256 `aeaddfec...`, MicroNut99/JumpingFlash_CD32X `fpga/jfgeo` at 4afaa87) | `jfgeo`: the SSF mapper and the cart geometry engine (below) |
 | anything else | the warning; the SSF mapper |
 
 The log says what it found: `[EverDrive PRO] mega-pro.rbf: krikzz map_ssf (the extended SSF mapper) (sha256
 00bb72f427bcc35b...): modelled as 'ssf'`. `--no-rbf` (headless) or `ARES_RBF=0` ignores the file. A port that
 adds an engine to the cart adds its model to `ares/md/cartridge/board/everdrive-pro.cpp` (`rbfModels`) on a
 branch, with the console's word on it - a green ares run is never a console pass.
+
+**Jumping Flash's geometry engine (branch `jfgeo-rbf`).** JumpingFlash_CD32X's 14 MB EverDrive PRO with
+FPGA build (`JFFPGA=1`): its `mega-pro.rbf` is krikzz's `map_ssf` plus a geometry engine that reads the stage
+in the PSRAM and writes finished triangle lists into its SRAM, read by the SH2s through window 3 (cart
+`0x180000-0x1FFFFF`). ares runs the game's reference model (`ares/md/cartridge/board/jfgeo/jfgeo.c`, copied
+from `fpga/jfgeo/`; the Verilog matches it byte for byte in Verilator) with the engine time taken from the
+Verilog's clock counts. On when the `.rbf` beside the launcher is that core (its SHA-256, or a
+`mega-pro.rbf.ares` saying `jfgeo`); `ARES_JFGEO=1` / `0` forces it on / off. 7 Nov 2026, console timing,
+World 1-1: 30 fps with the core, 20 fps with the same launcher and no core.
 
 **U-R-R's engine (branch `urr-fpga`).** U-R-R (MicroNut99/rev32xcd, `cartridge/`) is a plain 32X cartridge
 ROM, not a launcher: its `mega-pro.rbf` is krikzz's `map_smd` plus U-R-R's engine, which answers reads of

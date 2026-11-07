@@ -118,6 +118,9 @@ struct EverDrivePro : Interface {
     {"d1616d7617932b409c01605f12344af275fec8c25b0a69eca50c20aaef137b75", "krikzz map_svp (Virtua Racing's SVP)", ""},
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
+    //MicroNut99/JumpingFlash_CD32X fpga/jfgeo (map_ssf + the cart geometry engine) at 4afaa87, Quartus 25.1std
+    //Lite on the owner's PC, 7 Nov 2026 (a rebuild of other sources needs its "jfgeo" sidecar)
+    {"aeaddfec1c2dfa70d7ea523450d6f796c0142cecabb441a895a6d10d83ba31d0", "Jumping Flash CD32X core (SSF + geometry engine)", "jfgeo"},
   };
   static constexpr const char* rbfModels[] = {"ssf", "jfgeo"};    //the models this board has (more as cores are added)
 
@@ -148,6 +151,8 @@ struct EverDrivePro : Interface {
       print("[EverDrive PRO] mega-pro.rbf: ", name, " (sha256 ", digest.slice(0, 16), "...)", model ? string{" - model '", model, "'"} : string{},
             ": NOT modelled - ares runs the built-in SSF mapper; the console would run that file\n");
     }
+  }
+
   //the cart geometry engine (see JfGeo above)
   boolean geoOn;
   u16 geoParam[JFGEO_NPARAM] = {};
