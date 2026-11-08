@@ -152,7 +152,7 @@ static void take_irq(Cpu *c, uint16_t pc, uint8_t vec, int64_t end)
 }
 /* Mednafen ends a run slice after the instruction in which the VCE reaches line 123 or the frame's end: the wait count
    restarts, and at the frame's end the next frame's pad buttons come in */
-static uint16_t snap_lines[263][2];                           /* docs/105: the frame's line table, at its end */
+static uint16_t snap_lines[263][2];                           /* docs/105: the frame's line table, at its end */                           /* docs/105: the frame's line table, at its end */
 static void slice_end(int64_t t)
 {
     if (!vdc.exit_req || vdc.exit_time > t) return;

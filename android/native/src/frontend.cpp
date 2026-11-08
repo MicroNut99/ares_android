@@ -500,6 +500,13 @@ void Session::fillStats(uint64_t out[16]) const {
   for(int k = 0; k < 8; k++) out[k] = ares::MegaDrive::m32x.shm.fills[k], out[8 + k] = ares::MegaDrive::m32x.shs.fills[k];
 }
 
+void Session::vdpDump(uint16_t* vram, uint16_t* cram, uint16_t* vsram) const {
+  auto& v = ares::MegaDrive::vdp;
+  for(uint32_t a = 0; a < 65536; a++) vram[a] = v.debugVRAM(a);
+  for(uint32_t a = 0; a < 64; a++) cram[a] = v.debugCRAM(a);
+  for(uint32_t a = 0; a < 40; a++) vsram[a] = v.debugVSRAM(a);
+}
+
 uint32_t Session::sdram32(uint32_t address) const {
   auto& m = ares::MegaDrive::m32x.sdram;
   uint32_t i = (address & 0x3fffc) >> 1;

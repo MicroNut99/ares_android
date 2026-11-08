@@ -89,6 +89,7 @@ int main(int argc, char** argv) {
   std::map<uint32_t, uint32_t> presses;      //frame -> buttons from that frame on
   std::map<uint32_t, std::string> shots;     //frame -> file
   std::map<uint32_t, std::string> dumps;     //frame -> file (--dump-sdram)
+  std::map<uint32_t, std::string> vdpDumps;  //frame -> file (--dump-vdp)
   std::map<uint32_t, std::string> saves;     //frame -> state file
   std::string loadFile;
   std::string wavFile;
@@ -143,6 +144,9 @@ int main(int argc, char** argv) {
     } else if(a == "--dump-sdram") {   //--dump-sdram frame:file - the 32X's 256 KB SDRAM, big-endian
       auto v = next(); auto c = v.find(':');
       dumps[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
+    } else if(a == "--dump-vdp") {     //--dump-vdp frame:file - the Genesis VDP: VRAM (64 K words), CRAM (64), VSRAM (40), host order
+      auto v = next(); auto c = v.find(':');
+      vdpDumps[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
     } else if(a == "--shots") {        //--shots from:to:step:prefix - a screenshot every step frames, <prefix><frame>.ppm
       auto v = next(); unsigned a0, a1, st; char pre[512];
       if(sscanf(v.c_str(), "%u:%u:%u:%511s", &a0, &a1, &st, pre) == 4 && st)
@@ -224,6 +228,12 @@ int main(int argc, char** argv) {
         fclose(fp);
         printf("frame %u: SDRAM dump %s\n", f, it->second.c_str());
       }
+    }
+    if(auto it = vdpDumps.find(f); it != vdpDumps.end()) {
+      static uint16_t vr[65536], cr[64], vs[40];
+      session.vdpDump(vr, cr, vs);
+      if(FILE* fp = fopen(it->second.c_str(), "wb")) { fwrite(vr, 2, 65536, fp); fwrite(cr, 2, 64, fp); fwrite(vs, 2, 40, fp); fclose(fp); }
+      printf("frame %u: VDP dump %s comm6 %04X\n", f, it->second.c_str(), session.comm(3));
     }
     if(auto it = shots.find(f); it != shots.end()) {
       writePPM(it->second, frame);

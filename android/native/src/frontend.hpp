@@ -112,6 +112,7 @@ public:
   void profileStart();
   //cache line fills of the master [0-7] and the slave [8-15], by area
   void fillStats(uint64_t out[16]) const;
+  void vdpDump(uint16_t* vram, uint16_t* cram, uint16_t* vsram) const;   //the Genesis VDP's memories (64 K, 64, 40 words)
   uint32_t sdram32(uint32_t address) const;   //32X SDRAM, big-endian long at 0x06xxxxxx
   bool profileWrite(const std::string& file);
 

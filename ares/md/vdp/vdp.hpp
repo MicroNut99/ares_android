@@ -32,6 +32,10 @@ struct VDP : Thread {
     } tracer;
   } debugger{*this};
 
+  //(the headless harness's --dump-vdp, DraculaX CD32X docs/106: the memories as they stand)
+  auto debugVRAM(u32 a) const -> u16 { return vram.memory[a & 0xffff]; }
+  auto debugCRAM(u32 a) const -> u16 { return cram.memory[a & 63]; }
+  auto debugVSRAM(u32 a) const -> u16 { return a < 40 ? (u16)vsram.memory[a] : 0; }
   auto hcounter() const -> u32 { return state.hcounter; }
   auto vcounter() const -> u32 { return state.vcounter; }
   auto field() const -> bool { return state.field; }
