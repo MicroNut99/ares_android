@@ -327,6 +327,18 @@ struct Session::Impl : ares::Platform {
       const char* medium = machine == Machine::Mega32X ? "Mega 32X" : "Mega Drive";
       if((error = loadMediumFrom(medium, request.game, cart)) != "") return error;
       region = chooseRegion(cart, request.region);
+      //a "SEGA SSF" ROM runs on the EverDrive PRO's mapper: its folder's mega-pro.rbf too (everdrive-pro.cpp)
+      if(cart->pak->attribute("everdrive").boolean() && !request.ramCart.noRbf) {
+        auto cut = request.game.find_last_of("/\\");
+        auto dir = cut == std::string::npos ? std::string{} : request.game.substr(0, cut + 1);
+        auto rbf = nall::file::read(toNall(dir + "mega-pro.rbf"));
+        if(!rbf.empty()) {
+          cart->pak->append("mega-pro.rbf", rbf);
+          auto side = nall::file::read(toNall(dir + "mega-pro.rbf.ares"));
+          if(!side.empty()) cart->pak->append("mega-pro.rbf.ares", side);
+          log("EverDrive PRO: " + dir + "mega-pro.rbf beside the ROM (the cart's FPGA configuration)");
+        }
+      }
       if(!request.disc.empty()) {
         if((error = loadMediumFrom("Mega CD", request.disc, disc)) != "") return error;
       }

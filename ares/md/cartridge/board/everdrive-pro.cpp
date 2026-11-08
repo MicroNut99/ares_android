@@ -240,12 +240,67 @@ struct EverDrivePro : Interface {
       r.pc   = read(1, 1, 4) << 16 | read(1, 1, 6);
       prefetch(); prefetch();
     }
+    bool resetPending = true;                         //(the reset runs on the cart's own thread: main())
     auto main() -> void {
+      if(resetPending) { resetPending = false; reset(); }
       if(!run) return ed.step(64);
       if(irqPending && r.i < 1) { irqPending = false; return interrupt(Vector::Level1, 1); }
+      instructions++;
       instruction();
     }
+    u32 instructions = 0;
     auto go() -> void {                               //the frame: copied for the SH2s, then the vblank
+      if(boot || !run) return;                        //(still booting: the machine is not there yet)
+      if(auto f = getenv("ARES_NEO68K_DUMP")) {        //<file>: the work RAM at the first 64 vblanks, 64 KB each
+        static FILE* fp; static u32 n; if(!fp) fp = fopen(f, "wb");
+        if(fp && n++ < 64) { fwrite(wram, 1, 0x10000, fp); fflush(fp); }
+      }
+      if(getenv("ARES_NEO_TRACE")) { static u32 n; if(n++ < 14) print("[neo68k] go ", frames, ": ", instructions, " instructions since, pc ", hex(r.pc, 6L), " i ", (u32)r.i, " stop ", (u32)r.stop, " pending ", (u32)irqPending, " clock ", ed.cartridge->clock(), "\n"); instructions = 0; }
+      //ARES_NEO68K_CRCS=<game.crcs> (the port's PC build, host_game --crcs: the same start, the same answers to the
+      //I/O ports): each vblank's VRAM (the part the 32X keeps) against it, in order
+      if(auto f = getenv("ARES_NEO68K_CRCS")) {
+        static std::vector<u8> d; static u32 v, bad, good;
+        if(d.empty()) d = nall::file::read(f);
+        if(8 * v + 8 <= d.size()) {
+          u8 vb[0x6a40 * 2]; u32 k = 0;
+          static const u32 from[3] = {0, 0x7000, 0x8000}, to[3] = {0x5f40, 0x7500, 0x8600};
+          for(u32 r : range(3)) for(u32 w = from[r]; w < to[r]; w++) { vb[k++] = vram[w] >> 8; vb[k++] = vram[w]; }
+          u32 cv = Hash::CRC32({vb, k}).value();
+          u32 want = d[8 * v + 4] | d[8 * v + 5] << 8 | d[8 * v + 6] << 16 | (u32)d[8 * v + 7] << 24;
+          if(cv == want) { if(++good % 300 == 0) print("[neo68k] vblank ", v, ": the VRAM as the PC build's (", good, " so far)\n"); }
+          else if(bad++ < 10) {
+            s32 at = -1;
+            for(u32 j = 0; 8 * j + 8 <= d.size() && j < v + 400; j++)
+              if((d[8 * j + 4] | d[8 * j + 5] << 8 | d[8 * j + 6] << 16 | (u32)d[8 * j + 7] << 24) == cv) { at = j; break; }
+            print("[neo68k] vblank ", v, ": the VRAM differs from the PC build's (it is the PC's vblank ", at, ")\n");
+          }
+          v++;
+        }
+      }
+      //ARES_NEO68K_CHECK=<run.lock> (ms_record --lock, the state the boot block was made from): each vblank's work
+      //RAM, VRAM and palette against FBNeo's frame ends, in order (a check of the model, not of the game)
+      if(auto lock = getenv("ARES_NEO68K_CHECK")) {
+        static std::vector<std::array<u32, 4>> ends; static u32 next, bad;
+        if(ends.empty()) {
+          auto d = nall::file::read(lock);
+          u32 p = 38 * 4 + 0x10000 + 0x11000 + 0x4000 + 0x10000 + 0x20000 + 0x400;
+          auto w = [&](u32 i) { return (u32)d[p + 4 * i] | d[p + 4 * i + 1] << 8 | d[p + 4 * i + 2] << 16 | (u32)d[p + 4 * i + 3] << 24; };
+          for(u32 i = 0; p + 4 * i < d.size(); ) {
+            u32 t = w(i);
+            if(t == 3) ends.push_back({w(i + 3), w(i + 4), w(i + 5), w(i + 6)});
+            i += t == 3 ? 7 : 5;
+          }
+          print("[neo68k] check: ", ends.size(), " frame ends from ", lock, "\n");
+        }
+        if(next < ends.size()) {
+          u8 vb[0x11000]; for(u32 i : range(0x8800)) { vb[2 * i] = vram[i] >> 8; vb[2 * i + 1] = vram[i]; }
+          u32 cr = Hash::CRC32({wram, 0x10000}).value(), cv = Hash::CRC32({vb, 0x11000}).value(), cp = Hash::CRC32({pal[palBank], 0x2000}).value();
+          auto& e = ends[next++];
+          bool same = cr == e[1] && cv == e[2] && cp == e[3];
+          if(!same && bad++ < 10) print("[neo68k] frame ", e[0], ": ", cr != e[1] ? "work RAM " : "", cv != e[2] ? "VRAM " : "", cp != e[3] ? "palette " : "", "differ\n");
+          if(same && e[0] % 60 == 0) print("[neo68k] frame ", e[0], ": the same\n");
+        }
+      }
       memory::copy<u16>(snapVram, vram, 0x8800);
       memory::copy<u8>(snapPal, pal[palBank], 0x2000);
       if(!(irqCtl & 8) && animTimer++ >= (u32)(irqCtl >> 8)) { animTimer = 0; sprFrame++; }
@@ -254,6 +309,7 @@ struct EverDrivePro : Interface {
     }
     //a read of the SH2s' window (o: the offset in the bank)
     auto windowRead(u32 o) -> n16 {
+      if(getenv("ARES_NEO_TRACE")) { static u32 n; if(n++ < 40) print("[neo68k] window read ", hex(o, 5L), " run ", (u32)run, " pc ", hex(r.pc, 6L), "\n"); }
       if(o < 0x11000) return snapVram[o >> 1];
       if(o < 0x13000) { u32 i = o - 0x11000; return snapPal[i] << 8 | snapPal[i + 1]; }
       if(o >= 0x7f000) {
@@ -266,7 +322,7 @@ struct EverDrivePro : Interface {
         case 4: coin = val; return 0;
         case 5: go(); return (u16)frames;
         case 6: if(sound.empty()) return 0; { u8 c = sound.front(); sound.pop_front(); return 0x8000 | c; }
-        case 7: if(val & 2) reset(); run = val & 1; return 0;
+        case 7: if(val & 2) resetPending = true; run = val & 1; return 0;
         }
       }
       return 0xffff;
@@ -502,7 +558,7 @@ struct EverDrivePro : Interface {
   }
 
   auto power(bool reset) -> void override {
-    if(neo) { neo->run = false; neo->reset(); }   //held until the SH2 sends run (command 7)
+    if(neo) { neo->run = false; neo->resetPending = true; }   //held until the SH2 sends run (command 7)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
