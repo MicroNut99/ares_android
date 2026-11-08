@@ -143,6 +143,10 @@ int main(int argc, char** argv) {
     } else if(a == "--dump-sdram") {   //--dump-sdram frame:file - the 32X's 256 KB SDRAM, big-endian
       auto v = next(); auto c = v.find(':');
       dumps[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
+    } else if(a == "--shots") {        //--shots from:to:step:prefix - a screenshot every step frames, <prefix><frame>.ppm
+      auto v = next(); unsigned a0, a1, st; char pre[512];
+      if(sscanf(v.c_str(), "%u:%u:%u:%511s", &a0, &a1, &st, pre) == 4 && st)
+        for(uint32_t k = a0; k <= a1; k += st) shots[k] = std::string(pre) + std::to_string(k) + ".ppm";
     } else if(a == "--screenshot") {
       auto v = next(); auto c = v.find(':');
       shots[(uint32_t)atoi(v.substr(0, c).c_str())] = v.substr(c + 1);
@@ -223,7 +227,7 @@ int main(int argc, char** argv) {
     }
     if(auto it = shots.find(f); it != shots.end()) {
       writePPM(it->second, frame);
-      printf("frame %u: screenshot %s (%ux%u, aspect %.3f)\n", f, it->second.c_str(), frame.width, frame.height, frame.aspect);
+      printf("frame %u: screenshot %s (%ux%u, aspect %.3f) comm6 %04X\n", f, it->second.c_str(), frame.width, frame.height, frame.aspect, session.comm(3));
     }
 
     if(f % 60 == 59) {

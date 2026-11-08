@@ -265,7 +265,7 @@ struct EverDrivePro : Interface {
   //window 6's bank: the video window (docs/96 §5-6) - VRAM's words, then the stamps, the colours, the sprite table,
   //the frame's snapshot
   auto dxRead6(u32 off, n16& value) -> bool {
-    if(off >= 0x21000) return false;            //(map_dx's vw_ce: + 0x00000-0x1ffff, + 0x20000-0x20fff)
+    if(off >= 0x22000) return false;            //(map_dx's vw_ce: + 0x00000-0x1ffff, + 0x20000-0x21fff)
     if(!dx.on) { value = 0; return true; }
     dxSync();
     u32 w = off >> 1;
@@ -274,6 +274,7 @@ struct EverDrivePro : Interface {
     else if(w < 0x600) value = dxm_colors()[w - 0x400] & 0x1ff;
     else if(w < 0x700) value = dxm_sat()[w - 0x600];
     else if(w < 0x705) value = dxm_snapshot()[w - 0x700];
+    else if(w >= 0x800) value = dxm_lines()[(w & 0xff) * 2 + (w >> 8 & 1)] & (w & 0x100 ? 0x1ff : 0x3ff);   //(docs/105: X, then Y, a line)
     else value = 0;
     return true;
   }

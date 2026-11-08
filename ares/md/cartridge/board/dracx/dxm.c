@@ -152,12 +152,14 @@ static void take_irq(Cpu *c, uint16_t pc, uint8_t vec, int64_t end)
 }
 /* Mednafen ends a run slice after the instruction in which the VCE reaches line 123 or the frame's end: the wait count
    restarts, and at the frame's end the next frame's pad buttons come in */
+static uint16_t snap_lines[263][2];                           /* docs/105: the frame's line table, at its end */
 static void slice_end(int64_t t)
 {
     if (!vdc.exit_req || vdc.exit_time > t) return;
     ws_counter = 0;
     if (vdc.exit_req == 2) {
         snap[0] = vdc.BXR; snap[1] = vdc.BYR; snap[2] = vdc.MWR; snap[3] = vdc.CR; snap[4] = (uint16_t)frame;
+        memcpy(snap_lines, vdc.lines, sizeof snap_lines);
         if (frame_fn) frame_fn(frame_user, frame);
         frame++; if (!pad_now) io_set_buttons(&hw, pad_next);
     }
@@ -317,6 +319,7 @@ uint8_t *dxm_base_ram(void) { return base_ram; }
 uint8_t *dxm_cd_ram(void) { return cd_ram; }
 uint8_t *dxm_super_ram(void) { return super_ram; }
 uint8_t *dxm_bram(void) { return bram; }
+const uint16_t *dxm_lines(void) { return &snap_lines[0][0]; }
 uint16_t *dxm_vram(void) { return vdc.vram; }
 uint16_t *dxm_sat(void) { return vdc.sat; }
 uint16_t *dxm_colors(void) { return vdc.color; }
