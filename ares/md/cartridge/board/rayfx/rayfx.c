@@ -75,7 +75,7 @@ static void rfx_word(rfx_t* fx, uint16_t w) {
     if (w & RFX_START) { fx->ncmd = 0; fx->need = rfx_words(w); }
     else if (fx->ncmd == 0) return;    /* an argument with no command: ignored */
     if (fx->ncmd >= (int)(sizeof(fx->cmd) / sizeof(fx->cmd[0]))) { fx->ncmd = 0; return; }
-    fx->cmd[fx->ncmd++] = w;
+    fx->cmd[fx->ncmd++] = (w & RFX_START) ? w : (uint16_t)(w & 0x1FFF);
     if (fx->ncmd < fx->need) return;
     switch ((fx->cmd[0] >> 10) & 15) {
     case RFX_OP_BEGIN: memset(fx->filled, 0, sizeof(fx->filled)); fx->bg = 0; break;

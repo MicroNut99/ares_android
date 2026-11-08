@@ -21,7 +21,8 @@
  * cells are defined: the SH2 reads only those (its cells to write this frame).
  *
  * Commands: a word whose bit 14 is 1 starts a command (bits 13-10: the operation, 9-0: its first argument); the
- * words after it (bit 14 0) are its other arguments. A command runs when its last word comes; commands run in the
+ * words after it are its other arguments, each 0x2000 | value (bit 14 0, bit 13 1: never 0, the status read;
+ * values 0-0x1FFF). A command runs when its last word comes; commands run in the
  * order they came. Pixels are the game's 8-bit colours.
  *
  *   RFX_OP_BEGIN    (1 word)   a new frame: no cell filled
@@ -74,6 +75,7 @@
 #define RFX_OP_CELLS   5u
 #define RFX_OP_OFF     15u
 #define RFX_WORD(op, arg) ((uint16_t)(RFX_START | (op) << 10 | ((arg) & 0x3FF)))
+#define RFX_ARG(v)        ((uint16_t)(0x2000u | ((v) & 0x1FFFu)))
 
 typedef struct rfx {
     int on, key;                       /* key: how many of the three key words came */
