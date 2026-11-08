@@ -105,17 +105,23 @@ struct EverDrivePro : Interface {
   //SRAM); the program ROM (2 MB), the BIOS (128 KB) and the boot block (make_boot.py) in the image's banks, named in
   //mega-pro.rbf.ares ("neo68k prog=<bank> bios=<bank> boot=<bank> window=<bank>").  Reset: the vectors and the
   //state from the boot block (0xE00000) until it writes 0xEFFFFE.
-  //The SH2s' window (bank `window`, never 31): reads at 0x00000-0x10fff the frame's VRAM, 0x11000-0x12fff its
-  //palette (the bank in use), both copied at "go"; reads at 0x7f000-0x7ffff are commands - offset bits 9-11 the
-  //command, bits 1-8 its byte, the word read back the answer: 0 status (frames run), 1 pad 1, 2 pad 2, 3 the start /
-  //select byte (0x380000), 4 the coins (0x320001), 5 go (the frame copied, the vblank interrupt raised; answers the
-  //frame count), 6 the next sound command (0x8000 | the command, 0 none), 7 control (bit 0 run, bit 1 reset).
+  //The SH2s' window (bank `window`, never 31; protocol v2, Metal Slug docs/14): reads of 0x00000-0x12fff and
+  //0x13000-0x25fff are the two frame buffers (VRAM 0x11000, then the palette bank in use 0x2000), copied at each
+  //vblank into the one the SH2s have not taken; 0x30000-0x3ffff the work RAM, live; 0x40000-0x7ffff commands - a
+  //read of word k = (offset - 0x40000) / 2 is command k >> 12 with the value k & 0xfff, the word read back its answer:
+  //  0 status: the frames run | the latest buffer in bit 15      1 pad 1 (0x300000)      2 pad 2 (0x340000)
+  //  3 start / select (0x380000)      4 coins (0x320001)      5 go: the frame copied, the vblank interrupt raised
+  //  6 the next sound command (0x8000 | it; 0 none)      7 control (bit 0 run, bit 1 reset)
+  //  8 / 9 a work RAM address, its low 12 / high 4 bits      10 the byte written there
+  //  11 take: the latest frame buffer is the SH2s' until the next take - answers its number (0 / 1) | the frame << 1
   struct Neo68k : M68000 {
     EverDrivePro& ed;
     Neo68k(EverDrivePro& e) : ed(e) {}
     u32 progBank = 20, biosBank = 24, bootBank = 25, window = 27;
-    u8  wram[0x10000], pal[2][0x2000], nv[0x10000], snapPal[0x2000];
-    u16 vram[0x8800], snapVram[0x8800];
+    u8  wram[0x10000], pal[2][0x2000], nv[0x10000];
+    u16 vram[0x8800], snapVram[2][0x8800];
+    u8  snapPal2[2][0x2000];
+    u32 latest = 0, taken = 1, snapFrame[2] = {0, 0}, pokeAddr = 0;
     bool boot = true, biosVectors = true, palBank = false, sramWritable = false, shadow = false, vramBank = false;
     u16 vramPtr = 0, vramMod = 0, irqCtl = 0;
     bool run = false, irqPending = false;
@@ -301,8 +307,10 @@ struct EverDrivePro : Interface {
           if(same && e[0] % 60 == 0) print("[neo68k] frame ", e[0], ": the same\n");
         }
       }
-      memory::copy<u16>(snapVram, vram, 0x8800);
-      memory::copy<u8>(snapPal, pal[palBank], 0x2000);
+      u32 b = taken ^ 1;                              //the buffer the SH2s are not drawing from
+      memory::copy<u16>(snapVram[b], vram, 0x8800);
+      memory::copy<u8>(snapPal2[b], pal[palBank], 0x2000);
+      snapFrame[b] = frames; latest = b;
       if(!(irqCtl & 8) && animTimer++ >= (u32)(irqCtl >> 8)) { animTimer = 0; sprFrame++; }
       vblanks++; frames++;
       irqPending = true;
@@ -310,12 +318,16 @@ struct EverDrivePro : Interface {
     //a read of the SH2s' window (o: the offset in the bank)
     auto windowRead(u32 o) -> n16 {
       if(getenv("ARES_NEO_TRACE")) { static u32 n; if(n++ < 40) print("[neo68k] window read ", hex(o, 5L), " run ", (u32)run, " pc ", hex(r.pc, 6L), "\n"); }
-      if(o < 0x11000) return snapVram[o >> 1];
-      if(o < 0x13000) { u32 i = o - 0x11000; return snapPal[i] << 8 | snapPal[i + 1]; }
-      if(o >= 0x7f000) {
-        u32 cmd = o >> 9 & 7; u8 val = o >> 1;
+      if(o < 0x26000) {
+        u32 b = o >= 0x13000, i = o - 0x13000 * b;
+        if(i < 0x11000) return snapVram[b][i >> 1];
+        i -= 0x11000; return snapPal2[b][i] << 8 | snapPal2[b][i + 1];
+      }
+      if(o >= 0x30000 && o < 0x40000) { u32 i = o & 0xffff; return wram[i] << 8 | wram[(i + 1) & 0xffff]; }
+      if(o >= 0x40000) {
+        u32 k = (o - 0x40000) >> 1, cmd = k >> 12, val = k & 0xfff;
         switch(cmd) {
-        case 0: return (u16)frames;
+        case 0: return (u16)(frames & 0x7fff) | latest << 15;
         case 1: p1 = val; return 0;
         case 2: p2 = val; return 0;
         case 3: status = val; return 0;
@@ -323,6 +335,10 @@ struct EverDrivePro : Interface {
         case 5: go(); return (u16)frames;
         case 6: if(sound.empty()) return 0; { u8 c = sound.front(); sound.pop_front(); return 0x8000 | c; }
         case 7: if(val & 2) resetPending = true; run = val & 1; return 0;
+        case 8: pokeAddr = (pokeAddr & 0xf000) | val; return 0;
+        case 9: pokeAddr = (pokeAddr & 0x0fff) | (val & 0xf) << 12; return 0;
+        case 10: wram[pokeAddr & 0xffff] = val; return 0;
+        case 11: taken = latest; return (u16)(taken | (snapFrame[taken] & 0x7fff) << 1);
         }
       }
       return 0xffff;
