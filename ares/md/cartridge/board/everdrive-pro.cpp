@@ -66,8 +66,20 @@
 //    the registers and C itself. After a reset the launcher is put back in bank 0, as starting it
 //    again from the EverDrive menu would.
 
+//fpga-rayman branch (not main): a custom mega-pro.rbf beside the launcher can add hardware to the cart. With
+//ARES_RAYFX=1 this board has Rayman CD32X's compositor (MicroNut99/Rayman_32X_RAM fpga/model/rayfx.h: the reference
+//model, the same C) - SH2 reads of cart 0x3E0000-0x3FFFFF go to it once its key is read; off by default (the
+//standard EverDrive). A green run here is never a console pass.
 struct EverDrivePro : Interface {
   using Interface::Interface;
+  rfx_t rfx;
+  bool rfxPresent = false;
+  static auto rfxCart(void* ctx, u32 addr) -> u8 {
+    auto& self = *(EverDrivePro*)ctx;
+    u32 word = self.offset((n24)(addr & ~1u)) >> 1;
+    n16 w = self.ram[word];
+    return addr & 1 ? (u8)w.byte(0) : (u8)w.byte(1);
+  }
   Memory::Writable<n16> ram;     //16 MB: bank n is words n << 18 ... (n << 18) + 0x3ffff
   n5 bank[8];                    //the bank in each 512 KB window
   n1 mode32x;                    //X
@@ -94,6 +106,9 @@ struct EverDrivePro : Interface {
     //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND
     //with 0xffff hid the cartridge boot's Word RAM bug, 25 Oct 2026)
     for(u32 address : range(ram.size())) ram.write(address, (n16)(address * 0x9e37 + 0x5a5a));
+    rfxPresent = getenv("ARES_RAYFX") && getenv("ARES_RAYFX")[0] == '1';
+    rfx.cart = &EverDrivePro::rfxCart; rfx.ctx = this;
+    rfx_reset(&rfx);
     ramCart = pak->attribute("ramcart").boolean();
     cdBoot  = ramCart && !pak->attribute("bootable").boolean();
     writeProtect = pak->attribute("writeProtect").boolean();
@@ -158,6 +173,10 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(rfxPresent && !cpu.active()) {  //an SH2 read the compositor answers (fpga-rayman)
+      uint16_t v;
+      if(rfx_read(&rfx, (u32)(n22)address, &v)) return v;
+    }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
       sh2Word = word;
@@ -247,6 +266,7 @@ struct EverDrivePro : Interface {
   }
 
   auto power(bool reset) -> void override {
+    rfx_reset(&rfx);
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
@@ -272,6 +292,10 @@ struct EverDrivePro : Interface {
     s(distFirst);
     s(distLast);
     s(distData);
+    if(rfxPresent) {  //the compositor's state (fpga-rayman)
+      s(rfx.on); s(rfx.key); s(rfx.ncmd); s(rfx.need); s(rfx.cmd); s(rfx.layer); s(rfx.pic);
+      s(rfx.bg); s(rfx.bg_addr); s(rfx.bg_w); s(rfx.bg_v); s(rfx.bg_n); s(rfx.b_end); s(rfx.b_f);
+    }
     if(s.reading()) cartridge->cartOff = cartOff;
   }
 };

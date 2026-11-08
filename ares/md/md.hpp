@@ -20,6 +20,8 @@
 #include <component/audio/sn76489/sn76489.hpp>
 #include <component/audio/ym2612/ym2612.hpp>
 #include <component/eeprom/m24c/m24c.hpp>
+//Rayman CD32X's compositor on the EverDrive PRO's FPGA (fpga-rayman branch: a model, ARES_RAYFX=1)
+#include <md/cartridge/board/rayfx/rayfx.h>
 #include <vector>
 
 namespace ares::MegaDrive {

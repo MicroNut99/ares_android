@@ -1,5 +1,7 @@
 //started: 2016-07-08
 
+#include <md/cartridge/board/rayfx/rayfx.c>  //fpga-rayman branch: the compositor model (C, global)
+
 #include <md/bus/bus.cpp>
 #include <md/cpu/cpu.cpp>
 #include <md/apu/apu.cpp>
