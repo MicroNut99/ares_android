@@ -81,6 +81,37 @@ ares models since this build:**
   turns them off.
 - Still a choice in ares: byte writes to the registers, a console reset.
 
+## A custom FPGA core on the EverDrive PRO: Rayman CD32X's compositor (this branch, `fpga-rayman`)
+
+The Mega EverDrive PRO loads a `mega-pro.rbf` that sits next to the ROM into its FPGA instead of its own mapper. Rayman
+CD32X (MicroNut99/Rayman_32X_RAM, `fpga/`) puts a compositor there, beside krikzz's SSF mapper (unchanged): the master
+SH2 sends each sprite as a command (the address of a cart read is the data, since the SH2s cannot write the cart), the
+FPGA fills the frame's 16 x 8 cells from the background picture and draws the sprites over them in the EverDrive's
+SRAM, and the SH2s copy the finished cells into the 32X frame buffer. The interface, to the bit, is
+`ares/md/cartridge/board/rayfx/rayfx.h`.
+
+**On real hardware: it works (the owner's console, 8 Nov 2026).** Rayman R4 (the 14 MB EDCD build, `FX=1`) with
+`mega-pro.rbf` next to `Rayman_EDCD_R4_EDCD_14MB.32X` played on the console.
+
+| What | Result |
+|---|---|
+| The console (NTSC Sega CD + 32X, Mega EverDrive PRO), 8 Nov 2026 | **works** (the owner's test of R4 with the rbf) |
+| `mega-pro.rbf` (Quartus Prime 25.1std Lite, EP4CE15F23C8) | md5 `02278f98e16b9df294718cb1849ea1f1`; 6,828 logic elements (44 %), 130,048 memory bits (25 %), 12 9-bit multipliers |
+| Timing (50 MHz) | met at every corner: setup slack 3.618 ns (slow 85C), 4.656 ns (slow 0C), 13.013 ns (fast 0C); hold 0.453 / 0.402 / 0.158 ns |
+| The same project with only krikzz's map_ssf (the baseline) | byte for byte his published rbf (md5 `3ea59e17f1c34f322da2ffb68f0aa3ec`) |
+| Verilog against the C model (Verilator, Rayman's `fpga/sim`) | 0 words differ (random backgrounds and sprites, console reads cutting in) |
+| ares, this branch, `ARES_RAYFX=1` | six world tours of Rayman R4: no stop screen; Pink Plant Woods 1 walking at 60 fps, the master's sprite drawing 0 ms |
+| ares, `ARES_RAYFX` unset (no rbf) | the game finds no compositor and draws as before |
+
+Not measured on the console yet: its frame rate with and without the rbf, and how long the FPGA takes per frame while
+the SH2s use the cart (the engine waits whenever the console reads or writes the PSRAM). Those numbers are the next
+calibration of this model, which is instant (the hardware is not).
+
+**In ares:** `ARES_RAYFX=1` in front of the command gives the EverDrive PRO board the compositor (as if the rbf were
+next to the launcher); without it the board is the standard EverDrive. The model is the same C the game's port was
+written against (`rayfx.c`) and its state goes into save states. This branch is not merged into main: the owner
+decides. A green run in ares is never a console pass; this one has its console pass above.
+
 ## Use (Android)
 
 1. Install `ares-cd32x-android-arm64.apk` from the **`android-latest`** release
