@@ -15,6 +15,7 @@ struct Mega32X : Interface {
 
     board->pak = pak;
     board->load();
+    if(getenv("URR_FPGA")) { static urrfx::Engine engine; engine.reset(); urrFx = &engine; }
 
     cartridge->child = *board;
   }
