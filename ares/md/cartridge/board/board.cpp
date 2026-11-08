@@ -1,4 +1,5 @@
 #include "urr-fx/urr_fx.h"
+#include "dracx/dxm.h"   //DraculaX CD32X (docs/101): the EverDrive's 'dracx' engine, the PC Engine CD machine
 namespace Board {
 
 //U-R-R (MicroNut99/rev32xcd cartridge/fpga): the Mega EverDrive PRO FPGA core's engine, when the

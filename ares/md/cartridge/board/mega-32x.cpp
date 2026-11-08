@@ -42,6 +42,10 @@ struct Mega32X : Interface {
     board->save();
   }
 
+  //the inner board's own thread, if it has one (the EverDrive's 'dracx' engine: DraculaX CD32X docs/101)
+  auto frequency() -> u32 override { return board ? board->frequency() : Interface::frequency(); }
+  auto main() -> void override { if(board) board->main(); else Interface::main(); }
+
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     if(!m32x.io.adapterEnable) {
       return board->read(upper, lower, address, data);

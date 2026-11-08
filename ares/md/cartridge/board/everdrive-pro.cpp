@@ -107,7 +107,7 @@ struct EverDrivePro : Interface {
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
   };
-  static constexpr const char* rbfModels[] = {"ssf"};    //the models this board has (more as cores are added)
+  static constexpr const char* rbfModels[] = {"ssf", "dracx"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -138,8 +138,118 @@ struct EverDrivePro : Interface {
     }
   }
 
+  //DraculaX CD32X (MicroNut99/DraculaX_32X docs/100, docs/101): the 'dracx' configuration - map_ssf with the PC Engine
+  //CD engine beside it. Its contract with the 68000 and the SH2 is two banks: window 7's (the sector feed, the register
+  //window, the CD unit's load port, the start, the pad) and window 6's (the video window). The engine is the machine
+  //its FPGA was proven against (board/dracx: the cart's C models, equal to Mednafen from power-on): the cart's thread
+  //runs it at the PC Engine's master clock, and an access to those banks brings it to the accessing CPU's time first.
+  //Not modelled: the engine's holds of the master clock for its own memories (no time in the game's), the save state.
+  bool dracx = false;                       //rbfModel == "dracx"
+  struct Dx {
+    bool on = false;                        //started (the read of + 0x40080)
+    u16 cfgHi = 0; u32 cfg[256] = {};       //the load port: FwState's words (cd_fw.h), 0xC0 / 0xC1 the two steps
+    u32 lblHi = 0, lbl = 0;                 //the sector label, its high part, then the whole
+    bool full = false; u32 have = 0;        //the spare holds sector `have`
+    u8 sec[2048] = {};
+    u8 pad = 0;                             //the pad (Mednafen's order), before and after the start
+    u32 tab[3 + 6 * 101] = {};              //the disc's table for the machine, from the load port
+    std::vector<u8> rom;                    //the System Card, from bank 16 at the start
+  } dx;
+  static constexpr u32 MasterClock = 21'477'270;   //the PC Engine's (NTSC 6 x 3.579545 MHz)
+
+  auto frequency() -> u32 override { return dracx ? MasterClock : Interface::frequency(); }
+
+  //the cart's thread: the machine to its own time, a few hundred master clocks at a time; while it waits for a
+  //sector (dxm_waiting), its time stands still and only the thread's goes on
+  auto main() -> void override {
+    if(!dracx) return Interface::main();
+    if(!dx.on) return step(256);
+    s64 t0 = dxm_now(), t = dxm_run_until(t0 + 256);
+    step(dxm_waiting() || t <= t0 ? 256 : (u32)(t - t0));
+  }
+
+  //an access by the 68000 or an SH2: the machine brought to its time first
+  auto dxSync() -> void {
+    if(cpu.active()) cpu.synchronize(*cartridge);
+    else if(m32x.shm.active()) m32x.shm.synchronize(*cartridge);
+    else if(m32x.shs.active()) m32x.shs.synchronize(*cartridge);
+  }
+
+  static auto dxHave(void* user, s32 lba) -> int {
+    auto& d = ((EverDrivePro*)user)->dx; return d.full && (s32)d.have == lba;
+  }
+  static auto dxSector(void* user, s32 lba, u8* out) -> int {
+    auto& d = ((EverDrivePro*)user)->dx;
+    if(!d.full || (s32)d.have != lba) return 0;
+    ::memcpy(out, d.sec, 2048); d.full = false;   //the CD unit takes the spare
+    return 1;
+  }
+
+  //the start: the System Card (bank 16's first 256 KB, as the 68000 copied it), the disc's table (FwState's words:
+  //first, last, leadout, leadout_control at 12-15, then lba, sectors, pregap, control a track for tracks 0-32)
+  auto dxStart() -> void {
+    dx.rom.resize(256_KiB);
+    for(u32 n : range(128_KiB)) { n16 w = ram[16 << 18 | n]; dx.rom[2 * n] = w >> 8; dx.rom[2 * n + 1] = w; }
+    ::memset(dx.tab, 0, sizeof dx.tab);
+    dx.tab[0] = dx.cfg[12]; dx.tab[1] = dx.cfg[13]; dx.tab[2] = dx.cfg[14];
+    for(u32 t : range(33)) {
+      u32* x = dx.tab + 3 + 6 * t; const u32* c = dx.cfg + 16 + 4 * t;
+      x[0] = c[0]; x[1] = c[1]; x[2] = c[2]; x[3] = c[3]; x[4] = (c[3] & 4) ? 1 : 0; x[5] = (c[3] & 4) ? 2048 : 2352;
+    }
+    if(!dxm_power(dx.rom.data(), nullptr, (const s32*)dx.tab, dxSector, this)) {
+      print("[EverDrive PRO] dracx: the disc's table from the load port was not taken\n"); return;
+    }
+    dxm_feed(dxHave);
+    dxm_pad_now(dx.pad);
+    dx.on = true;
+    print("[EverDrive PRO] dracx: the engine started (tracks ", dx.tab[0], "-", dx.tab[1], ", lead-out ", (s32)dx.tab[2], ")\n");
+  }
+
+  //window 7's bank (docs/100 §2): what a read there does and answers (false: the bank's own memory answers)
+  auto dxRead7(u32 off, n16& value) -> bool {
+    if(off < 0x10000) { dx.lbl = dx.lblHi << 12 | (off >> 4 & 0xfff); dx.full = false; return false; }   //label, low
+    if(off >= 0x10000 && off < 0x12000) { dx.lblHi = off >> 4 & 0x1ff; return false; }                  //label, high
+    if(off >= 0x48000 && off < 0x49000) { dx.pad = off >> 4; if(dx.on) dxm_pad_now(dx.pad); return false; }
+    if(off >= 0x40000 && off < 0x40100) {                                                                //the registers
+      dxSync();
+      if(off >> 1 == 0x40080 >> 1 && !dx.on) dxStart();
+      u32 want = dx.on ? (u32)dxm_drive_next() : 0;
+      if(off & 4) value = 0;                                                    //the load port's busy bit: never
+      else if(off & 2) value = (dx.full && dx.have == want ? 0x8000 : 0) | (want >> 16 & 0x1f);
+      else value = (n16)want;
+      return true;
+    }
+    return false;
+  }
+  auto dxWrite7(u32 off, n1 upper, n1 lower, n16 data) -> void {
+    if(off >= 0x60000 && off < 0x60800) {                                       //the sector's 2 KB (command 91)
+      u32 b = off & 0x7fe;
+      if(upper) dx.sec[b] = data >> 8;
+      if(lower) { dx.sec[b + 1] = data; if(b == 0x7fe) { dx.full = true; dx.have = dx.lbl; } }
+    } else if(off >= 0x41000 && off < 0x41400) {                                //the load port
+      if(!(off & 2)) dx.cfgHi = data;
+      else dx.cfg[off >> 2 & 0xff] = dx.cfgHi << 16 | data;
+    }
+  }
+  //window 6's bank: the video window (docs/96 §5-6) - VRAM's words, then the stamps, the colours, the sprite table,
+  //the frame's snapshot
+  auto dxRead6(u32 off, n16& value) -> bool {
+    if(off >= 0x21000) return false;            //(map_dx's vw_ce: + 0x00000-0x1ffff, + 0x20000-0x20fff)
+    if(!dx.on) { value = 0; return true; }
+    dxSync();
+    u32 w = off >> 1;
+    if(w < 0x10000) value = dxm_vram()[w];
+    else if((w -= 0x10000) < 0x400) value = dxm_stamps()[w];
+    else if(w < 0x600) value = dxm_colors()[w - 0x400] & 0x1ff;
+    else if(w < 0x700) value = dxm_sat()[w - 0x600];
+    else if(w < 0x705) value = dxm_snapshot()[w - 0x700];
+    else value = 0;
+    return true;
+  }
+
   auto load() -> void override {
     identifyRbf();
+    dracx = rbfModel == "dracx";
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
     //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND
@@ -209,6 +319,11 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(dracx) {
+      u32 b = word >> 18, off = (word & 0x3ffff) << 1; n16 v;
+      if(b == bank[7] && dxRead7(off, v)) return v;
+      if(b == bank[6] && dxRead6(off, v)) return v;
+    }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
       sh2Word = word;
@@ -224,6 +339,7 @@ struct EverDrivePro : Interface {
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
     if(!writeEnable || writeProtect) return;
     u32 word = offset(address) >> 1;
+    if(dracx && word >> 18 == bank[7]) dxWrite7((word & 0x3ffff) << 1, upper, lower, data);   //(the bank's memory too)
     if(upper) ram[word].byte(1) = data.byte(1);
     if(lower) ram[word].byte(0) = data.byte(0);
     u32 local = (n22)address;
@@ -298,6 +414,7 @@ struct EverDrivePro : Interface {
   }
 
   auto power(bool reset) -> void override {
+    dx = {};   //(dracx: the engine at its reset until the start read)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;

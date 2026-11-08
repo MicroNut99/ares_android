@@ -226,3 +226,13 @@ ares_add_sources(
     vdp-performance/vdp.cpp
     vdp-performance/vdp.hpp
 )
+
+# DraculaX CD32X (docs/101): the Mega EverDrive PRO's 'dracx' model - the PC Engine CD machine (the cart's FPGA
+# engine's C models, checked against Mednafen), C sources compiled as C++, each on its own (their static helpers share
+# names), with the interpreter's per-instruction hook (TRACECHECK) that the machine's timing runs in.
+set(_dracx ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/dracx)
+set(_dracx_src ${_dracx}/dxm.c ${_dracx}/huc_rt.c ${_dracx}/interp.c ${_dracx}/vdc_model.c ${_dracx}/vdc_timing.c
+    ${_dracx}/io_model.c ${_dracx}/scsi_model.c)
+target_sources(ares PRIVATE ${_dracx_src})
+set_source_files_properties(${_dracx_src} TARGET_DIRECTORY ares PROPERTIES LANGUAGE CXX
+    COMPILE_DEFINITIONS TRACECHECK SKIP_UNITY_BUILD_INCLUSION ON)
