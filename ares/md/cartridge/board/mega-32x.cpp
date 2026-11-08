@@ -42,6 +42,10 @@ struct Mega32X : Interface {
     board->save();
   }
 
+  //a cart with a thread of its own (the EverDrive's neo68k core): its clock and its work
+  auto frequency() -> u32 override { return board ? board->frequency() : Interface::frequency(); }
+  auto main() -> void override { if(board) return board->main(); Interface::main(); }
+
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     if(!m32x.io.adapterEnable) {
       return board->read(upper, lower, address, data);
