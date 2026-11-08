@@ -126,7 +126,7 @@ struct EverDrivePro : Interface {
     u8  wram[0x10000], pal[2][0x2000], nv[0x10000];
     u16 vram[0x8800], snapVram[2][0x8800];
     u8  snapPal2[2][0x2000];
-    u32 latest = 0, taken = 1, snapFrame[2] = {0, 0}, pokeAddr = 0;
+    u32 latest = 0, taken = 1, snapFrame[2] = {0, 0}, snapSpr[2] = {0, 0}, pokeAddr = 0;
     bool boot = true, biosVectors = true, palBank = false, sramWritable = false, shadow = false, vramBank = false;
     u16 vramPtr = 0, vramMod = 0, irqCtl = 0;
     bool run = false, irqPending = false;
@@ -325,7 +325,7 @@ struct EverDrivePro : Interface {
       u32 b = taken ^ 1;                              //the buffer the SH2s are not drawing from
       memory::copy<u16>(snapVram[b], vram, 0x8800);
       memory::copy<u8>(snapPal2[b], pal[palBank], 0x2000);
-      snapFrame[b] = frames; latest = b;
+      snapFrame[b] = frames; snapSpr[b] = sprFrame; latest = b;
       if(!(irqCtl & 8) && animTimer++ >= (u32)(irqCtl >> 8)) { animTimer = 0; sprFrame++; }
       vblanks++; frames++;
       irqPending = true;
@@ -355,6 +355,7 @@ struct EverDrivePro : Interface {
         case 9: pokeAddr = protocol == 3 ? (pokeAddr & 0x00ff) | val << 8 : (pokeAddr & 0x0fff) | (val & 0xf) << 12; return 0;
         case 10: wram[pokeAddr & 0xffff] = val; return 0;
         case 11: taken = latest; return (u16)(taken | (snapFrame[taken] & 0x7fff) << 1);
+        case 12: return (u16)(snapSpr[taken] & 0xff);   // the sprite auto-animation counter, as the taken buffer saw it
         }
       }
       return 0xffff;
