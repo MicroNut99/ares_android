@@ -32,7 +32,7 @@
 
 namespace urrfx {
 
-enum { RING_BASE = 32, GLOW_BASE = 152, TXT_BASE = 192, NREG = 64, VERSION = 2 };
+enum { RING_BASE = 32, GLOW_BASE = 496, TXT_BASE = 544, NREG = 64, VERSION = 3 };   /* v3 (U-R-R v110): rounder rings */
 enum { NT_W = 40, NT_H = 28, NT_N = NT_W * NT_H, HS_N = 448, TXT_W = 3072 };
 
 static const signed char sin8s_tab[256] = {
@@ -42,25 +42,29 @@ static const unsigned char font57[64][7] = {
 #include "font57.inc"
 };
 
-static inline uint32_t isqrt20(uint32_t v) {      /* floor(sqrt(v)), v < 2^20: 10 steps, as the Verilog */
+static inline uint32_t isqrt22(uint32_t v) {      /* floor(sqrt(v)), v < 2^22: 11 steps, as the Verilog */
     uint32_t r = 0;
-    for (int b = 9; b >= 0; b--) {
+    for (int b = 10; b >= 0; b--) {
         uint32_t t = r | (1u << b);
         if (t * t <= v) r = t;
     }
     return r;
 }
-static inline int sector16(int dx, int dy) {      /* the direction of (dx, dy) in 16 steps, 0 = +x, 4 = +y */
-    int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy, q;
-    if (ay * 256 <= ax * 51) q = 0;
-    else if (ay * 256 <= ax * 171) q = 1;
-    else if (ax * 256 <= ay * 51) q = 4;
-    else if (ax * 256 <= ay * 171) q = 3;
-    else q = 2;
+static inline int sector32(int dx, int dy) {      /* the direction of (dx, dy) in 32 steps, 0 = +x, 8 = +y */
+    int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy, q;   /* (11.25 degrees: tan of the half-steps * 256) */
+    if (ay * 256 <= ax * 25) q = 0;
+    else if (ay * 256 <= ax * 78) q = 1;
+    else if (ay * 256 <= ax * 137) q = 2;
+    else if (ay * 256 <= ax * 210) q = 3;
+    else if (ax * 256 <= ay * 25) q = 8;
+    else if (ax * 256 <= ay * 78) q = 7;
+    else if (ax * 256 <= ay * 137) q = 6;
+    else if (ax * 256 <= ay * 210) q = 5;
+    else q = 4;
     if (dx >= 0 && dy >= 0) return q;
-    if (dx < 0 && dy >= 0) return 8 - q;
-    if (dx < 0) return 8 + q;
-    return (16 - q) & 15;
+    if (dx < 0 && dy >= 0) return 16 - q;
+    if (dx < 0) return 16 + q;
+    return (32 - q) & 31;
 }
 
 struct Engine {
@@ -114,8 +118,9 @@ struct Engine {
 
     void render() {
         renders++;
-        /* NT_A: the rings.  Each cell's centre against each ring: on it if |d - r| <= 7; the tile is
-           the library's arc for the ring's direction there (8, mod 180 degrees) and the offset. */
+        /* NT_A: the rings.  Each cell's centre against each ring: on it if |d - r| <= 7 px; the tile is
+           the library's arc for the ring's direction there (16, mod 180 degrees: 11.25 degree steps) and
+           its offset from the cell's centre in half pixels (29) - so the arcs meet: round rings. */
         for (int cy = 0; cy < NT_H; cy++) for (int cx = 0; cx < NT_W; cx++) {
             uint16_t e = 0;
             for (int k = 0; k < 8 && !e; k++) {
@@ -123,12 +128,12 @@ struct Engine {
                 if (!r || !pal) continue;
                 int dx = cx * 8 + 4 - s16(reg[4 * k]), dy = cy * 8 + 4 - s16(reg[4 * k + 1]);
                 if (dx < -511 || dx > 511 || dy < -511 || dy > 511) continue;
-                int d = (int)isqrt20((uint32_t)(dx * dx + dy * dy));
-                int o = d - r;
-                if (o < -7 || o > 7) continue;
-                int s = sector16(dx, dy);
-                if (s >= 8) o = -o;
-                e = (uint16_t)(pal << 13 | (RING_BASE + (s & 7) * 15 + o + 7));
+                int d2 = (int)isqrt22((uint32_t)(dx * dx + dy * dy) * 4);     /* 2 * distance */
+                int o = d2 - 2 * r;                                            /* half pixels */
+                if (r > 1023 || o < -14 || o > 14) continue;
+                int s = sector32(dx, dy);
+                if (s >= 16) o = -o;
+                e = (uint16_t)(pal << 13 | (RING_BASE + (s & 15) * 29 + o + 14));
             }
             nta[cy * NT_W + cx] = e;
         }
@@ -139,7 +144,7 @@ struct Engine {
             if (R && lev) {
                 int dx = cx * 8 + 4 - s16(reg[0x20]), dy = cy * 8 + 4 - s16(reg[0x21]);
                 if (dx >= -511 && dx <= 511 && dy >= -511 && dy <= 511) {
-                    int d = (int)isqrt20((uint32_t)(dx * dx + dy * dy));
+                    int d = (int)(isqrt22((uint32_t)(dx * dx + dy * dy) * 4) >> 1);
                     if (d < R) {
                         uint64_t l = ((uint64_t)(R - d) * (uint64_t)lev * reg[0x24]) >> 16;
                         if (l > 30) l = 30;

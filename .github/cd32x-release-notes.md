@@ -1,3 +1,7 @@
+ares CD32X v1.8 - U-R-R's round rings (8 Nov 2026)
+
+- v1.8: U-R-R's cart FPGA engine model updated to its version 3 (U-R-R v110 on): the shockwave rings are round (16 directions, half-pixel offsets). U-R-R v110 needs this (with v1.7 it falls back to its 32X effects); v109 needs v1.7.
+
 ares CD32X v1.7 - U-R-R's cart FPGA engine (7 Nov 2026)
 
 - v1.7: **U-R-R's own Mega EverDrive PRO core, modelled.** U-R-R (MicroNut99/rev32xcd, a plain 32X cartridge ROM) ships a `mega-pro.rbf` that is krikzz's `map_smd` plus an engine of its own in the cart's last 32 KB (`0x3F8000-0x3FFFFF`): it draws the game's effects for the Genesis VDP - shockwave rings, a glow with a ripple, the STAGE n / GAME OVER / YOU WIN lettering turning and zooming - and the 32X shows them through its background black. ares runs it with the game's own C++ reference model (the Verilog matches it bit for bit in simulation), **on whenever U-R-R's ROM is loaded** (from U-R-R v109 on), as on the console with the `.rbf` beside the ROM. `URR_FPGA=0` turns it off, `URR_FPGA=1` forces it on. Any other ROM: unchanged. README-CD32X.md: "The cart's FPGA configuration".
