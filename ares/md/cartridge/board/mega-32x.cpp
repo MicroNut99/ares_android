@@ -15,7 +15,25 @@ struct Mega32X : Interface {
 
     board->pak = pak;
     board->load();
-    if(getenv("URR_FPGA")) { static urrfx::Engine engine; engine.reset(); urrFx = &engine; }
+    //U-R-R's cart FPGA engine (MicroNut99/rev32xcd cartridge/fpga): on for U-R-R's ROM (its header's
+    //title starts "U-R-R"), as on a Mega EverDrive PRO with U-R-R's mega-pro.rbf beside the ROM.
+    //The environment variable URR_FPGA=0 turns it off, URR_FPGA=1 forces it on for any ROM.
+    urrFx = nullptr;
+    {
+      bool on = false;
+      if(auto standard = dynamic_cast<Board::Standard*>(board.get())) {
+        if(standard->rom.size() > 0x128 / 2) {
+          string title;
+          for(u32 n = 0x120; n < 0x126; n += 2) {
+            n16 w = standard->rom[n >> 1];
+            title.append((char)(w >> 8), (char)(w & 0xff));
+          }
+          on = title == "U-R-R ";
+        }
+      }
+      if(auto e = getenv("URR_FPGA")) on = e[0] != '0';
+      if(on) { static urrfx::Engine engine; engine.reset(); urrFx = &engine; }
+    }
 
     cartridge->child = *board;
   }
