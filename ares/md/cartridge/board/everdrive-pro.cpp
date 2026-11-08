@@ -147,6 +147,7 @@ struct EverDrivePro : Interface {
   bool dracx = false;                       //rbfModel == "dracx"
   struct Dx {
     bool on = false;                        //started (the read of + 0x40080)
+    bool armed = false;                     //the load port's word 0xFF was 'DXON' (DraculaX docs/102): the start read may start
     u16 cfgHi = 0; u32 cfg[256] = {};       //the load port: FwState's words (cd_fw.h), 0xC0 / 0xC1 the two steps
     u32 lblHi = 0, lbl = 0;                 //the sector label, its high part, then the whole
     bool full = false; u32 have = 0;        //the spare holds sector `have`
@@ -164,6 +165,10 @@ struct EverDrivePro : Interface {
   auto main() -> void override {
     if(!dracx) return Interface::main();
     if(!dx.on) return step(256);
+    if(getenv("DRACX_TRACE")) {   //(a line about every second of the cart's thread: the machine's state)
+      static u64 n; if(++n % 83'000 == 0) print("[dracx] machine frame ", dxm_frame(), " time ", (s64)dxm_now(), " waiting ", dxm_waiting(),
+        " drive next ", dxm_drive_next(), " spare ", dx.full ? (s32)dx.have : -1, " missed ", dxm_missed(), "\n");
+    }
     s64 t0 = dxm_now(), t = dxm_run_until(t0 + 256);
     step(dxm_waiting() || t <= t0 ? 256 : (u32)(t - t0));
   }
@@ -212,7 +217,7 @@ struct EverDrivePro : Interface {
     if(off >= 0x48000 && off < 0x49000) { dx.pad = off >> 4; if(dx.on) dxm_pad_now(dx.pad); return false; }
     if(off >= 0x40000 && off < 0x40100) {                                                                //the registers
       dxSync();
-      if(off >> 1 == 0x40080 >> 1 && !dx.on) dxStart();
+      if(off >> 1 == 0x40080 >> 1 && !dx.on && dx.armed) dxStart();   //(not before: the 32X's own boot reads the cart there)
       u32 want = dx.on ? (u32)dxm_drive_next() : 0;
       if(off & 4) value = 0;                                                    //the load port's busy bit: never
       else if(off & 2) value = (dx.full && dx.have == want ? 0x8000 : 0) | (want >> 16 & 0x1f);
@@ -228,6 +233,7 @@ struct EverDrivePro : Interface {
       if(lower) { dx.sec[b + 1] = data; if(b == 0x7fe) { dx.full = true; dx.have = dx.lbl; } }
     } else if(off >= 0x41000 && off < 0x41400) {                                //the load port
       if(!(off & 2)) dx.cfgHi = data;
+      else if((off >> 2 & 0xff) == 0xff) dx.armed = (dx.cfgHi << 16 | data) == 0x44584f4e;   //the key, not the CD unit's
       else dx.cfg[off >> 2 & 0xff] = dx.cfgHi << 16 | data;
     }
   }
