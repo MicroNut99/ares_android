@@ -95,7 +95,186 @@ struct EverDrivePro : Interface {
   //that file in the pak as "mega-pro.rbf" (and a "mega-pro.rbf.ares" beside it, a line naming the model,
   //for a configuration of our own).  ares does not run a bitstream: it knows each configuration by its
   //SHA-256 and models what that configuration is.  Off with ARES_RBF=0 (the file is ignored).
+  string rbfParams;       //the sidecar's whole line (the model's parameters)
   string rbfModel;        //"" (no file: the built-in SSF mapper), "ssf", or what it was found to be
+
+  //"neo68k" (Metal Slug CD32X docs/14, fpga/rtl/neo_core.sv): the Neo Geo's 68000 on the cart, running SNK's
+  //program for the SH2s, which only draw.  ares's 68000 as the cart's thread at 12 MHz; around it the Neo Geo's
+  //memory map as neo_core.sv has it (the port's recomp/ng.c, lockstep-checked against FBNeo), the I/O ports as the
+  //32X port's ng_game.c answers them.  Its memories: work RAM, VRAM, palette, backup RAM inside (the FPGA's own
+  //SRAM); the program ROM (2 MB), the BIOS (128 KB) and the boot block (make_boot.py) in the image's banks, named in
+  //mega-pro.rbf.ares ("neo68k prog=<bank> bios=<bank> boot=<bank> window=<bank>").  Reset: the vectors and the
+  //state from the boot block (0xE00000) until it writes 0xEFFFFE.
+  //The SH2s' window (bank `window`, never 31): reads at 0x00000-0x10fff the frame's VRAM, 0x11000-0x12fff its
+  //palette (the bank in use), both copied at "go"; reads at 0x7f000-0x7ffff are commands - offset bits 9-11 the
+  //command, bits 1-8 its byte, the word read back the answer: 0 status (frames run), 1 pad 1, 2 pad 2, 3 the start /
+  //select byte (0x380000), 4 the coins (0x320001), 5 go (the frame copied, the vblank interrupt raised; answers the
+  //frame count), 6 the next sound command (0x8000 | the command, 0 none), 7 control (bit 0 run, bit 1 reset).
+  struct Neo68k : M68000 {
+    EverDrivePro& ed;
+    Neo68k(EverDrivePro& e) : ed(e) {}
+    u32 progBank = 20, biosBank = 24, bootBank = 25, window = 27;
+    u8  wram[0x10000], pal[2][0x2000], nv[0x10000], snapPal[0x2000];
+    u16 vram[0x8800], snapVram[0x8800];
+    bool boot = true, biosVectors = true, palBank = false, sramWritable = false, shadow = false, vramBank = false;
+    u16 vramPtr = 0, vramMod = 0, irqCtl = 0;
+    bool run = false, irqPending = false;
+    u32 frames = 0, vblanks = 0, sprFrame = 0, animTimer = 0;
+    u8 p1 = 0xff, p2 = 0xff, status = 0xff, coin = 0x1f;
+    s32 soundLast = -1;
+    std::deque<u8> sound;
+
+    auto psram(u32 bank, u32 offset) -> n16 { return ed.ram[(bank << 18) + (offset >> 1)]; }
+    auto rom16(u32 a) -> n16 {                      //the program ROM: P1 at 0x000000, P2 at 0x200000
+      if(a < 0x100000) return psram(progBank, a);
+      return psram(progBank, 0x100000 + (a & 0xfffff));
+    }
+    auto vecBios(u32 a) -> n16 { return a < 0x80 ? psram(biosBank, a) : rom16(a); }      //BIOS 0-0x7f, ROM 0x80-0x3ff
+    auto vecBiosRom(u32 a) -> n16 { return a < 0x80 ? rom16(a) : psram(biosBank, a); }   //ROM 0-0x7f, BIOS above
+
+    auto ioRead(u32 a) -> u8 {                       //ng_game.c ng_io_read, a byte
+      switch(a & 0xff00ff) {
+      case 0x300000: return p1;
+      case 0x300001: return 0xff;
+      case 0x300081: return 0xbf;
+      case 0x320000: if(soundLast == 1) { soundLast = -1; return 1; } return 0;
+      case 0x320001: return (coin & 0x3f) | ((vblanks >> 1) & 1) << 6;
+      case 0x340000: return p2;
+      case 0x380000: return status;
+      }
+      return 0xff;
+    }
+    auto lspcRead(u32 a) -> n16 {
+      switch(a & 6) {
+      case 0: case 2: { u32 i = (u32)vramBank * 0x8000 + (vramPtr >> 1); return i < 0x8800 ? vram[i] : (u16)0; }
+      case 4: return (u16)(vramMod >> 1);
+      default: return 0xf800 | (sprFrame & 7);
+      }
+    }
+    auto read(n1 upper, n1 lower, n24 address, n16 data = 0) -> n16 override {
+      u32 a = address;
+      switch(a >> 20) {
+      case 0x0: if(boot && a < 8) return psram(bootBank, a);
+                if(biosVectors && a < 0x400) return vecBios(a);
+                return rom16(a);
+      case 0x2: return rom16(a);
+      case 0x1: return wram[a & 0xffff] << 8 | wram[(a + 1) & 0xffff];
+      case 0x3:
+        if((a & 0xfe0000) == 0x3c0000) return lspcRead(a);
+        return ioRead(a) << 8 | ioRead(a + 1);
+      case 0x4: case 0x5: case 0x6: case 0x7: {
+        u8* p = pal[(a & 0x3fe000) == 0 ? palBank : 0];
+        return p[a & 0x1fff] << 8 | p[(a + 1) & 0x1fff];
+      }
+      case 0xc: if(biosVectors && (a & 0xfffff) < 0x400) return vecBiosRom(a & 0x3ff);
+                return psram(biosBank, a & 0x1ffff);
+      case 0xd: return nv[a & 0xffff] << 8 | nv[(a + 1) & 0xffff];
+      case 0xe: return psram(bootBank, a & 0x7ffff);
+      }
+      return 0xffff;
+    }
+    auto vramWrite(u32 reg, u16 v) -> void {
+      switch(reg & 14) {
+      case 0: vramPtr = v << 1; vramBank = v >> 15; break;
+      case 2: { u32 i = (u32)vramBank * 0x8000 + (vramPtr >> 1); if(i < 0x8800) vram[i] = v; vramPtr += vramMod; break; }
+      case 4: vramMod = v << 1; break;
+      case 6: irqCtl = v; break;
+      }
+    }
+    auto ioWrite8(u32 a, u8 v) -> void {
+      switch(a & 0xff0000) {
+      case 0x320000:
+        if(a & 1) break;
+        if(sound.size() < 256) sound.push_back(v);
+        soundLast = v;
+        break;
+      case 0x3a0000:
+        switch(a & 0x1f) {
+        case 0x01: shadow = 0; break;        case 0x11: shadow = 1; break;
+        case 0x03: biosVectors = 1; break;   case 0x13: biosVectors = 0; break;
+        case 0x0d: sramWritable = 0; break;  case 0x1d: sramWritable = 1; break;
+        case 0x0f: palBank = 1; break;       case 0x1f: palBank = 0; break;
+        }
+        break;
+      }
+    }
+    auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+      u32 a = address;
+      if((a & ~1u) == 0xeffffe) { boot = false; return; }
+      switch(a >> 20) {
+      case 0x1:
+        if(upper) wram[a & 0xffff] = data.byte(1);
+        if(lower) wram[(a + 1) & 0xffff] = data.byte(0);
+        return;
+      case 0x3:
+        if((a & 0xfe0000) == 0x3c0000) {
+          if(upper && lower) vramWrite(a, data);
+          else if(upper) vramWrite(a, data.byte(1) * 0x101);
+          return;
+        }
+        if(upper) ioWrite8(a, data.byte(1));
+        if(lower) ioWrite8(a + 1, data.byte(0));
+        return;
+      case 0x4: case 0x5: case 0x6: case 0x7:
+        if(upper) pal[palBank][a & 0x1fff] = data.byte(1);
+        if(lower) pal[palBank][(a + 1) & 0x1fff] = data.byte(0);
+        return;
+      case 0xd:
+        if(!sramWritable) return;
+        if(upper) nv[a & 0xffff] = data.byte(1);
+        if(lower) nv[(a + 1) & 0xffff] = data.byte(0);
+        return;
+      }
+    }
+    auto idle(u32 clocks) -> void override { ed.step(clocks); }
+    auto wait(u32 clocks) -> void override { ed.step(clocks); }
+
+    auto reset() -> void {
+      memory::fill<u8>(wram, sizeof wram, 0); memory::fill<u8>(nv, sizeof nv, 0);
+      memory::fill<u8>(&pal[0][0], sizeof pal, 0); memory::fill<u16>(vram, 0x8800, 0);
+      boot = true; biosVectors = true; palBank = false; sramWritable = false; shadow = false;
+      vramBank = false; vramPtr = 0; vramMod = 0; irqCtl = 0;
+      irqPending = false; frames = 0; vblanks = 0; sprFrame = 0; animTimer = 0; soundLast = -1; sound.clear();
+      M68000::power();
+      r.a[7] = read(1, 1, 0) << 16 | read(1, 1, 2);
+      r.pc   = read(1, 1, 4) << 16 | read(1, 1, 6);
+      prefetch(); prefetch();
+    }
+    auto main() -> void {
+      if(!run) return ed.step(64);
+      if(irqPending && r.i < 1) { irqPending = false; return interrupt(Vector::Level1, 1); }
+      instruction();
+    }
+    auto go() -> void {                               //the frame: copied for the SH2s, then the vblank
+      memory::copy<u16>(snapVram, vram, 0x8800);
+      memory::copy<u8>(snapPal, pal[palBank], 0x2000);
+      if(!(irqCtl & 8) && animTimer++ >= (u32)(irqCtl >> 8)) { animTimer = 0; sprFrame++; }
+      vblanks++; frames++;
+      irqPending = true;
+    }
+    //a read of the SH2s' window (o: the offset in the bank)
+    auto windowRead(u32 o) -> n16 {
+      if(o < 0x11000) return snapVram[o >> 1];
+      if(o < 0x13000) { u32 i = o - 0x11000; return snapPal[i] << 8 | snapPal[i + 1]; }
+      if(o >= 0x7f000) {
+        u32 cmd = o >> 9 & 7; u8 val = o >> 1;
+        switch(cmd) {
+        case 0: return (u16)frames;
+        case 1: p1 = val; return 0;
+        case 2: p2 = val; return 0;
+        case 3: status = val; return 0;
+        case 4: coin = val; return 0;
+        case 5: go(); return (u16)frames;
+        case 6: if(sound.empty()) return 0; { u8 c = sound.front(); sound.pop_front(); return 0x8000 | c; }
+        case 7: if(val & 2) reset(); run = val & 1; return 0;
+        }
+      }
+      return 0xffff;
+    }
+  };
+  maybe<Neo68k&> neoRef;
+  std::unique_ptr<Neo68k> neo;
+
   struct RbfKnown { const char* sha256; const char* name; const char* model; };
   static constexpr RbfKnown rbfKnown[] = {
     //krikzz/mega-ed-pub 7064f45, fpga/fpga_pro/*/output_files/mega-pro.rbf (MIT); map_ssf also built
@@ -107,7 +286,7 @@ struct EverDrivePro : Interface {
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
   };
-  static constexpr const char* rbfModels[] = {"ssf"};    //the models this board has (more as cores are added)
+  static constexpr const char* rbfModels[] = {"ssf", "neo68k"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -123,7 +302,12 @@ struct EverDrivePro : Interface {
       string line;
       for(u32 n : range(side->size())) { char c = side->read(); if(c == '\n' || c == '\r') break; line.append(c); }
       line.strip();
-      if(line) { model = line; if(!name) name = {"our own configuration (", line, ")"}; }
+      if(line) {
+        auto parts = nall::split(line, " ");
+        model = parts.size() ? parts[0] : line;
+        rbfParams = line;
+        if(!name) name = {"our own configuration (", line, ")"};
+      }
     }
     bool known = false;
     for(auto m : rbfModels) if(model == m) known = true;
@@ -138,8 +322,27 @@ struct EverDrivePro : Interface {
     }
   }
 
+  auto frequency() -> u32 override { return neo ? 12'000'000 : Interface::frequency(); }
+  auto main() -> void override { if(neo) return neo->main(); Interface::main(); }
+
   auto load() -> void override {
     identifyRbf();
+    neo.reset();
+    if(rbfModel == "neo68k") {
+      neo = std::make_unique<Neo68k>(*this);
+      for(auto& kv : nall::split(rbfParams, " ")) {
+        auto p = nall::split(kv, "=");
+        if(p.size() != 2) continue;
+        u32 v = p[1].natural();
+        if(v > 30) { print("[EverDrive PRO] neo68k: bank ", v, " for ", p[0], " refused (banks 0-30; never 31)\n"); continue; }
+        if(p[0] == "prog") neo->progBank = v;
+        if(p[0] == "bios") neo->biosBank = v;
+        if(p[0] == "boot") neo->bootBank = v;
+        if(p[0] == "window") neo->window = v;
+      }
+      print("[EverDrive PRO] neo68k: program bank ", neo->progBank, ", BIOS bank ", neo->biosBank, ", boot bank ",
+            neo->bootBank, ", the SH2s' window bank ", neo->window, "\n");
+    }
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
     //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND
@@ -209,6 +412,7 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(neo && word >> 18 == neo->window) return neo->windowRead(word << 1 & 0x7ffff);   //the core's window (neo68k)
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
       sh2Word = word;
@@ -298,6 +502,7 @@ struct EverDrivePro : Interface {
   }
 
   auto power(bool reset) -> void override {
+    if(neo) { neo->run = false; neo->reset(); }   //held until the SH2 sends run (command 7)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
