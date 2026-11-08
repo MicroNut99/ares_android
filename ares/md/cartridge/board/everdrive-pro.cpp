@@ -173,6 +173,25 @@ struct EverDrivePro : Interface {
     step(dxm_waiting() || t <= t0 ? 256 : (u32)(t - t0));
   }
 
+  //DRACX_MASKS=<file> (DraculaX docs/104): the pad from a recording instead of the SH2's - a u16 libretro mask a frame
+  //from the machine's power-on, each taken at the frame's end as tools/m2host/dxm_pc.c does, so the run is the
+  //recording's (Mednafen's, frame for frame). DRACX_HASHES=<file>: each frame's dxm_hash, to set against dxm_pc's.
+  inline static std::vector<u16> dxMasks;
+  inline static FILE* dxHashes = nullptr;
+  static auto dxFrame(void*, long k) -> void {
+    if(dxHashes) { fprintf(dxHashes, "frame %ld hash %08x\n", k, dxm_hash(0)); fflush(dxHashes); }
+    if(!dxMasks.empty()) dxm_pad(k + 1 < (long)dxMasks.size() ? dxMasks[k + 1] : 0);
+  }
+  auto dxReplay() -> void {
+    dxMasks.clear();
+    if(auto p = getenv("DRACX_MASKS")) if(FILE* f = fopen(p, "rb")) {
+      u16 m; while(fread(&m, 2, 1, f) == 1) dxMasks.push_back(m); fclose(f);
+      print("[EverDrive PRO] dracx: the pad from ", p, " (", dxMasks.size(), " frames)\n");
+    }
+    if(auto p = getenv("DRACX_HASHES")) dxHashes = fopen(p, "w");
+    if(!dxMasks.empty() || dxHashes) dxm_on_frame(dxFrame, nullptr);
+  }
+
   //an access by the 68000 or an SH2: the machine brought to its time first
   auto dxSync() -> void {
     if(cpu.active()) cpu.synchronize(*cartridge);
@@ -201,11 +220,14 @@ struct EverDrivePro : Interface {
       u32* x = dx.tab + 3 + 6 * t; const u32* c = dx.cfg + 16 + 4 * t;
       x[0] = c[0]; x[1] = c[1]; x[2] = c[2]; x[3] = c[3]; x[4] = (c[3] & 4) ? 1 : 0; x[5] = (c[3] & 4) ? 2048 : 2352;
     }
-    if(!dxm_power(dx.rom.data(), nullptr, (const s32*)dx.tab, dxSector, this)) {
+    std::vector<u8> bram;   //DRACX_BRAM=<file> (2 KB): the backup RAM at power-on, for a recording's replay (the cart: zeros)
+    if(auto p = getenv("DRACX_BRAM")) if(FILE* f = fopen(p, "rb")) { bram.resize(2048); if(fread(bram.data(), 1, 2048, f) != 2048) bram.clear(); fclose(f); }
+    if(!dxm_power(dx.rom.data(), bram.empty() ? nullptr : bram.data(), (const s32*)dx.tab, dxSector, this)) {
       print("[EverDrive PRO] dracx: the disc's table from the load port was not taken\n"); return;
     }
     dxm_feed(dxHave);
-    dxm_pad_now(dx.pad);
+    dxReplay();
+    if(dxMasks.empty()) dxm_pad_now(dx.pad);
     dx.on = true;
     print("[EverDrive PRO] dracx: the engine started (tracks ", dx.tab[0], "-", dx.tab[1], ", lead-out ", (s32)dx.tab[2], ")\n");
   }
@@ -214,7 +236,7 @@ struct EverDrivePro : Interface {
   auto dxRead7(u32 off, n16& value) -> bool {
     if(off < 0x10000) { dx.lbl = dx.lblHi << 12 | (off >> 4 & 0xfff); dx.full = false; return false; }   //label, low
     if(off >= 0x10000 && off < 0x12000) { dx.lblHi = off >> 4 & 0x1ff; return false; }                  //label, high
-    if(off >= 0x48000 && off < 0x49000) { dx.pad = off >> 4; if(dx.on) dxm_pad_now(dx.pad); return false; }
+    if(off >= 0x48000 && off < 0x49000) { dx.pad = off >> 4; if(dx.on && dxMasks.empty()) dxm_pad_now(dx.pad); return false; }
     if(off >= 0x40000 && off < 0x40100) {                                                                //the registers
       dxSync();
       if(off >> 1 == 0x40080 >> 1 && !dx.on && dx.armed) dxStart();   //(not before: the 32X's own boot reads the cart there)

@@ -191,7 +191,9 @@ int trace_check(Cpu *c, uint16_t pc)
         if (!i_set && (hw.irq_mask & 2) && vt_irq_at(&vdc, sample)) { take_irq(c, pc, 0xF8, end); return 1; }
         if (!i_set && (hw.irq_mask & 1) && io_irq2_at(&hw, sample)) { take_irq(c, pc, 0xF6, end); return 1; }
     }
-    if (frame >= frames_to || (until >= 0 && t_ins >= until)) { c->miss = 2; c->pc = pc; stop = 1; return 1; }
+    /* (a stop here - after an interrupt's entry, or before the first instruction - resumes at this instruction's start:
+       the last one's end is done; docs/104 - before, the resume took that end again) */
+    if (frame >= frames_to || (until >= 0 && t_ins >= until)) { if (started) hold_start = 1; c->miss = 2; c->pc = pc; stop = 1; return 1; }
 start:
     started = 1;
     { static long itf = -2; if (itf == -2) itf = getenv("ITRACE") ? atol(getenv("ITRACE")) : -1;
