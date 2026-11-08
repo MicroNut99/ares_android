@@ -118,6 +118,11 @@ struct EverDrivePro : Interface {
     EverDrivePro& ed;
     Neo68k(EverDrivePro& e) : ed(e) {}
     u32 progBank = 20, biosBank = 24, bootBank = 25, window = 27;
+    //the packed form (Metal Slug's image, docs/14): the program ROM and the BIOS as make_m3_data.py part 0 packs
+    //them, read through its page table (part 1); the boot block and the window by byte offset / cart address
+    bool packed = false;
+    u32 romOff = 0, tableOff = 0, spillOff = 0, bootOff = ~0u, windowAddr = 0;   //(windowAddr 0: the bank `window`)
+    u32 protocol = 2;                                  //3: the window is 0x38000 bytes (docs/14)
     u8  wram[0x10000], pal[2][0x2000], nv[0x10000];
     u16 vram[0x8800], snapVram[2][0x8800];
     u8  snapPal2[2][0x2000];
@@ -131,12 +136,22 @@ struct EverDrivePro : Interface {
     std::deque<u8> sound;
 
     auto psram(u32 bank, u32 offset) -> n16 { return ed.ram[(bank << 18) + (offset >> 1)]; }
+    auto phys(u32 byteOffset) -> n16 { return ed.ram[(byteOffset >> 1) & 0x7fffff]; }
+    auto packedRead(u32 a) -> n16 {                 //a 68000 address through the page table (program ROM, BIOS)
+      u16 e = phys(tableOff + 2 * (a >> 16 & 0xff));
+      if(e == 0xffff) return 0xffff;
+      u32 base = e & 0x8000 ? spillOff : romOff;
+      return phys(base + ((e & 0x7fff) + (a >> 12 & 15)) * 4096 + (a & 0xffe));
+    }
     auto rom16(u32 a) -> n16 {                      //the program ROM: P1 at 0x000000, P2 at 0x200000
+      if(packed) return packedRead(a);
       if(a < 0x100000) return psram(progBank, a);
       return psram(progBank, 0x100000 + (a & 0xfffff));
     }
-    auto vecBios(u32 a) -> n16 { return a < 0x80 ? psram(biosBank, a) : rom16(a); }      //BIOS 0-0x7f, ROM 0x80-0x3ff
-    auto vecBiosRom(u32 a) -> n16 { return a < 0x80 ? rom16(a) : psram(biosBank, a); }   //ROM 0-0x7f, BIOS above
+    auto bios16(u32 a) -> n16 { return packed ? packedRead(0xc00000 | (a & 0x1ffff)) : psram(biosBank, a & 0x1ffff); }
+    auto boot16(u32 a) -> n16 { return bootOff != ~0u ? phys(bootOff + (a & 0xffffe)) : psram(bootBank, a & 0x7ffff); }
+    auto vecBios(u32 a) -> n16 { return a < 0x80 ? bios16(a) : rom16(a); }      //BIOS 0-0x7f, ROM 0x80-0x3ff
+    auto vecBiosRom(u32 a) -> n16 { return a < 0x80 ? rom16(a) : bios16(a); }   //ROM 0-0x7f, BIOS above
 
     auto ioRead(u32 a) -> u8 {                       //ng_game.c ng_io_read, a byte
       switch(a & 0xff00ff) {
@@ -160,7 +175,7 @@ struct EverDrivePro : Interface {
     auto read(n1 upper, n1 lower, n24 address, n16 data = 0) -> n16 override {
       u32 a = address;
       switch(a >> 20) {
-      case 0x0: if(boot && a < 8) return psram(bootBank, a);
+      case 0x0: if(boot && a < 8) return boot16(a);
                 if(biosVectors && a < 0x400) return vecBios(a);
                 return rom16(a);
       case 0x2: return rom16(a);
@@ -173,9 +188,9 @@ struct EverDrivePro : Interface {
         return p[a & 0x1fff] << 8 | p[(a + 1) & 0x1fff];
       }
       case 0xc: if(biosVectors && (a & 0xfffff) < 0x400) return vecBiosRom(a & 0x3ff);
-                return psram(biosBank, a & 0x1ffff);
+                return bios16(a);
       case 0xd: return nv[a & 0xffff] << 8 | nv[(a + 1) & 0xffff];
-      case 0xe: return psram(bootBank, a & 0x7ffff);
+      case 0xe: return boot16(a);
       }
       return 0xffff;
     }
@@ -323,9 +338,10 @@ struct EverDrivePro : Interface {
         if(i < 0x11000) return snapVram[b][i >> 1];
         i -= 0x11000; return snapPal2[b][i] << 8 | snapPal2[b][i + 1];
       }
-      if(o >= 0x30000 && o < 0x40000) { u32 i = o & 0xffff; return wram[i] << 8 | wram[(i + 1) & 0xffff]; }
-      if(o >= 0x40000) {
-        u32 k = (o - 0x40000) >> 1, cmd = k >> 12, val = k & 0xfff;
+      u32 ramAt = protocol == 3 ? 0x26000 : 0x30000, cmdAt = protocol == 3 ? 0x36000 : 0x40000;
+      if(o >= ramAt && o < ramAt + 0x10000) { u32 i = o - ramAt; return wram[i] << 8 | wram[(i + 1) & 0xffff]; }
+      if(o >= cmdAt && o < (protocol == 3 ? 0x38000u : 0x80000u)) {
+        u32 k = (o - cmdAt) >> 1, cmd = protocol == 3 ? k >> 8 : k >> 12, val = protocol == 3 ? k & 0xff : k & 0xfff;
         switch(cmd) {
         case 0: return (u16)(frames & 0x7fff) | latest << 15;
         case 1: p1 = val; return 0;
@@ -335,8 +351,8 @@ struct EverDrivePro : Interface {
         case 5: go(); return (u16)frames;
         case 6: if(sound.empty()) return 0; { u8 c = sound.front(); sound.pop_front(); return 0x8000 | c; }
         case 7: if(val & 2) resetPending = true; run = val & 1; return 0;
-        case 8: pokeAddr = (pokeAddr & 0xf000) | val; return 0;
-        case 9: pokeAddr = (pokeAddr & 0x0fff) | (val & 0xf) << 12; return 0;
+        case 8: pokeAddr = protocol == 3 ? (pokeAddr & 0xff00) | val : (pokeAddr & 0xf000) | val; return 0;
+        case 9: pokeAddr = protocol == 3 ? (pokeAddr & 0x00ff) | val << 8 : (pokeAddr & 0x0fff) | (val & 0xf) << 12; return 0;
         case 10: wram[pokeAddr & 0xffff] = val; return 0;
         case 11: taken = latest; return (u16)(taken | (snapFrame[taken] & 0x7fff) << 1);
         }
@@ -403,17 +419,26 @@ struct EverDrivePro : Interface {
     if(rbfModel == "neo68k") {
       neo = std::make_unique<Neo68k>(*this);
       for(auto& kv : nall::split(rbfParams, " ")) {
+        if(kv == "packed") { neo->packed = true; continue; }
         auto p = nall::split(kv, "=");
         if(p.size() != 2) continue;
-        u32 v = p[1].natural();
+        u32 v = p[1].beginsWith("0x") ? (u32)p[1].slice(2).hex() : (u32)p[1].natural();
+        if(p[0] == "rom") { neo->romOff = v; continue; }
+        if(p[0] == "table") { neo->tableOff = v; continue; }
+        if(p[0] == "spill") { neo->spillOff = v; continue; }
+        if(p[0] == "boot" && v >= 32) { neo->bootOff = v; continue; }
+        if(p[0] == "window" && v >= 32) { neo->windowAddr = v; neo->protocol = 3; continue; }
         if(v > 30) { print("[EverDrive PRO] neo68k: bank ", v, " for ", p[0], " refused (banks 0-30; never 31)\n"); continue; }
         if(p[0] == "prog") neo->progBank = v;
         if(p[0] == "bios") neo->biosBank = v;
         if(p[0] == "boot") neo->bootBank = v;
         if(p[0] == "window") neo->window = v;
       }
-      print("[EverDrive PRO] neo68k: program bank ", neo->progBank, ", BIOS bank ", neo->biosBank, ", boot bank ",
-            neo->bootBank, ", the SH2s' window bank ", neo->window, "\n");
+      if(neo->packed) print("[EverDrive PRO] neo68k: the packed program ROM at ", hex(neo->romOff), ", its table at ", hex(neo->tableOff),
+            ", the spill at ", hex(neo->spillOff), ", the boot block at ", hex(neo->bootOff), "\n");
+      else print("[EverDrive PRO] neo68k: program bank ", neo->progBank, ", BIOS bank ", neo->biosBank, ", boot bank ", neo->bootBank, "\n");
+      if(neo->windowAddr) print("[EverDrive PRO] neo68k: the SH2s' window at cart ", hex(neo->windowAddr), "-", hex(neo->windowAddr + 0x37fff), " (protocol 3)\n");
+      else print("[EverDrive PRO] neo68k: the SH2s' window: bank ", neo->window, "\n");
     }
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
@@ -484,7 +509,11 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
-    if(neo && word >> 18 == neo->window) return neo->windowRead(word << 1 & 0x7ffff);   //the core's window (neo68k)
+    if(neo) {                                         //the core's window (neo68k): a cart address range, or a bank
+      u32 local = (n22)address;
+      if(neo->windowAddr) { if(local >= neo->windowAddr && local < neo->windowAddr + 0x38000) return neo->windowRead(local - neo->windowAddr); }
+      else if(word >> 18 == neo->window) return neo->windowRead(word << 1 & 0x7ffff);
+    }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
       sh2Word = word;
