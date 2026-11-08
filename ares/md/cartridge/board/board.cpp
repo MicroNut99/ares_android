@@ -1,4 +1,9 @@
+#include "urr-fx/urr_fx.h"
 namespace Board {
+
+//U-R-R (MicroNut99/rev32xcd cartridge/fpga): the Mega EverDrive PRO FPGA core's engine, when the
+//environment variable URR_FPGA is set: it answers 32X cartridge reads of 0x3F8000-0x3FFFFF.
+static urrfx::Engine* urrFx = nullptr;
 
 #include "standard.cpp"
 #include "linear.cpp"

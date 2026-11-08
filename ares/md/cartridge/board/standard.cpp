@@ -31,6 +31,7 @@ struct Standard : Interface {
   }
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
+    if(urrFx && address >= 0x3f8000 && address < 0x400000) return urrFx->read(address);
     if(address >= 0x400000) {
       if(address >= rom.size()*2) return data;
       return rom[address >> 1];

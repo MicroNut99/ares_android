@@ -107,6 +107,15 @@ The log says what it found: `[EverDrive PRO] mega-pro.rbf: krikzz map_ssf (the e
 adds an engine to the cart adds its model to `ares/md/cartridge/board/everdrive-pro.cpp` (`rbfModels`) on a
 branch, with the console's word on it - a green ares run is never a console pass.
 
+**U-R-R's engine (branch `urr-fpga`).** U-R-R (MicroNut99/rev32xcd, `cartridge/`) is a plain 32X cartridge
+ROM, not a launcher: its `mega-pro.rbf` is krikzz's `map_smd` plus U-R-R's engine, which answers reads of
+the cart's last 32 KB (`0x3F8000-0x3FFFFF`) and draws the game's effects for the Genesis VDP (shockwave
+rings, glow + ripple, spinning lettering). ares models it with the game's own C++ reference model
+(`ares/md/cartridge/board/urr-fx/urr_fx.h`, copied from `cartridge/fpga/model/`; the Verilog matches it bit
+for bit in simulation). It is **on whenever U-R-R's ROM is loaded** (its header title starts `U-R-R`) - as on
+the console with the `.rbf` beside the ROM; `URR_FPGA=0` turns it off (the game then runs as on any other
+cart), `URR_FPGA=1` forces it on for any 32X ROM.
+
 ## Use (Android)
 
 1. Install `ares-cd32x-android-arm64.apk` from the **`android-latest`** release
