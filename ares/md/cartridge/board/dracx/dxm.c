@@ -268,6 +268,7 @@ void dxm_pad_now(uint8_t b) { pad_now = 1; if ((b & 0x50) == 0x50) b &= ~0x50; i
 void dxm_feed(DxmHave have) { have_fn = have; }
 int dxm_waiting(void) { return waiting; }
 int32_t dxm_drive_next(void) { return hw.scsi.have ? (int32_t)hw.scsi.sector_addr : 0; }
+uint32_t dxm_audio(void) { return (hw.cdda_status == 1 ? 1u << 31 : 0) | (uint32_t)(hw.play_mode & 3) << 24 | (hw.read_sec_start & 0x1FFFFF); }
 const uint16_t *dxm_stamps(void) { return stamp; }
 const uint16_t *dxm_snapshot(void) { return snap; }
 void dxm_on_frame(void (*fn)(void *, long), void *user) { frame_fn = fn; frame_user = user; }

@@ -219,7 +219,10 @@ struct EverDrivePro : Interface {
       dxSync();
       if(off >> 1 == 0x40080 >> 1 && !dx.on && dx.armed) dxStart();   //(not before: the 32X's own boot reads the cart there)
       u32 want = dx.on ? (u32)dxm_drive_next() : 0;
-      if(off & 4) value = 0;                                                    //the load port's busy bit: never
+      u32 a = dx.on ? dxm_audio() : 0;
+      if(off & 8) value = (n16)a;                                               //word 4: CD-DA's play's start, 15-0
+      else if(off & 4) value = off & 2 ? (a >> 31 ? 0x8000 : 0) | (a >> 24 & 3) << 13 | (a >> 16 & 0x1f)   //word 3
+                                       : 0;                                     //word 2: the load port's busy bit: never
       else if(off & 2) value = (dx.full && dx.have == want ? 0x8000 : 0) | (want >> 16 & 0x1f);
       else value = (n16)want;
       return true;
