@@ -293,7 +293,8 @@ struct EverDrivePro : Interface {
     s(distLast);
     s(distData);
     if(rfxPresent) {  //the compositor's state (fpga-rayman)
-      s(rfx.on); s(rfx.key); s(rfx.ncmd); s(rfx.need); s(rfx.cmd); s(rfx.layer); s(rfx.pic);
+      s(rfx.on); s(rfx.key); s(rfx.ncmd); s(rfx.need); s(rfx.cmd); s(rfx.pic);
+      for(auto& row : rfx.filled) s(row);
       s(rfx.bg); s(rfx.bg_addr); s(rfx.bg_w); s(rfx.bg_v); s(rfx.bg_n); s(rfx.b_end); s(rfx.b_f);
     }
     if(s.reading()) cartridge->cartOff = cartOff;
