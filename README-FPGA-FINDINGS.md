@@ -5,7 +5,8 @@ For people and for an AI working on a CD32X port that puts its own logic on the 
 Flash CD32X's first core failed on the owner's console after passing in ares:
 
 - **Rayman CD32X** (MicroNut99/Rayman_32X_RAM, `fpga/`): a sprite compositor. **Works on the console.**
-- **U-R-R** (`fpga_work/mega-ed-pub/fpga/URR_FPGA` on the owner's PC): a 4 KB command window. **Works on the console.**
+- **U-R-R** (MicroNut99/rev32xcd, `cartridge/fpga/`; README-CD32X.md has its version pairs): an engine behind a
+  window at the end of the cart, beside krikzz's `map_smd`. **Works on the console** (v111, engine v3.1).
 - **Jumping Flash CD32X** (MicroNut99/JumpingFlash_CD32X, `fpga/jfgeo/`): a geometry engine. The first core
   (7 Nov) passed ares and its Verilator check, then hung on the console; the second (8 Nov), rebuilt the
   Rayman way, **works on the console** (V23: the title, World 1-1's bonus stage at 30 fps; V24: World 1-1 at
@@ -41,7 +42,7 @@ From Rayman's `map_rayfx.sv` / `rfx_core.sv` (and U-R-R's `map_urr.sv` / `urr_en
    copy of `map_smd.sv` with its few changes marked `URR`. Keep krikzz's MIT notice.
 2. **Off until a key.** At power-on and after `map_rst` every output is krikzz's: the cart is the standard
    one. A fixed sequence of reads (Rayman: three command-port reads; Jumping Flash: 0x1E0000 + 2k for k =
-   0x4A46, 0x4745, 0x4F4E) turns it on. U-R-R: an ID in a window the ROM leaves 0xFF. The game reads the
+   0x4A46, 0x4745, 0x4F4E) turns it on. U-R-R: an ID read from a window its ROM leaves 0xFF. The game reads the
    status after the key; anything unexpected means no core, and the game runs without it.
 3. **The console always wins, combinationally.** Who gets a memory is decided from the bus pins (`ce_lo`,
    `oe`, `we_lo`, `we_hi`) with no clock between: the console's access goes straight to the memory.
@@ -84,7 +85,7 @@ From Rayman's `map_rayfx.sv` / `rfx_core.sv` (and U-R-R's `map_urr.sv` / `urr_en
 
 ## 5. For the next AI
 
-- Read Rayman's `README_FOR_AI.md` and `fpga/README.md`, and U-R-R's `README.md`, before writing any RTL.
+- Read Rayman's `README_FOR_AI.md` and `fpga/README.md`, and U-R-R's `cartridge/fpga` notes, before writing any RTL.
 - Start from Rayman's `map_rayfx.sv` (the wrapper) and its two memory channels; put your engine behind them.
 - A deterministic stop (same frame every run) is not a bus problem; a random one may be. Check with the core
   swapped or removed before rewriting RTL.
