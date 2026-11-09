@@ -1,4 +1,4 @@
-# The EverDrive PRO's FPGA: what ares shows, what the console does (findings, 8 Nov 2026)
+# The EverDrive PRO's FPGA: what ares shows, what the console does (findings, 8-9 Nov 2026)
 
 For people and for an AI working on a CD32X port that puts its own logic on the Mega EverDrive PRO's FPGA
 (`mega-pro.rbf` next to the `EDCD_*.32X` launcher). It records what three such cores taught, the day Jumping
@@ -7,6 +7,8 @@ Flash CD32X's first core failed on the owner's console after passing in ares:
 - **Rayman CD32X** (MicroNut99/Rayman_32X_RAM, `fpga/`): a sprite compositor. **Works on the console.**
 - **U-R-R** (MicroNut99/rev32xcd, `cartridge/fpga/`; README-CD32X.md has its version pairs): an engine behind a
   window at the end of the cart, beside krikzz's `map_smd`. **Works on the console** (v111, engine v3.1).
+- **Metal Slug CD32X** (MicroNut99/FBNeo_MetalSlug, `fpga/`): SNK's 68000 on the cart. **Works on the console**
+  (section 5).
 - **Jumping Flash CD32X** (MicroNut99/JumpingFlash_CD32X, `fpga/jfgeo/`): a geometry engine. The first core
   (7 Nov) passed ares and its Verilator check, then hung on the console; the second (8 Nov), rebuilt the
   Rayman way, **works on the console** (V23: the title, World 1-1's bonus stage at 30 fps; V24: World 1-1 at
@@ -83,7 +85,38 @@ From Rayman's `map_rayfx.sv` / `rfx_core.sv` (and U-R-R's `map_urr.sv` / `urr_en
 | **A hang 7 s into World 1-1** (V21 and V22: all switches on) | none, past 9:06 on the same disc | stopped at 9:53 every time, with the first core and with the second, so not the bus. V23 (no CD audio, movies, stage sound packs or CMD 81) and V24 (CD audio and stage sound packs back) run: it came with CMD 81 (CD pause) or the movies. Open |
 | **The V22 launcher without the `.rbf`** | boots to the title and plays | a black screen at once on the stock EverDrive core. Open |
 
-## 5. For the next AI
+## 5. A CPU on the cart: Metal Slug CD32X (9 Nov 2026)
+
+**Metal Slug CD32X** (MicroNut99/FBNeo_MetalSlug, `fpga/`, branch `m0-recorder`) runs SNK's 68000 program on the
+FPGA (fx68k at 25 MHz, `fpga/rtl/neo_cart.sv` beside krikzz's `map_ssf`, Rayman's wrapper pattern); the SH2s only
+draw. **Works on the console** (9 Nov 2026: the attract, the demo, Mission 1, the menu's level select). Unlike the
+three cores above, it runs a CPU out of PSRAM0, the chip the 32X reads its code and data from. What that took:
+
+| Symptom on the console (ares: fine) | Cause | Fix (`neo_cart.sv`) |
+|---|---|---|
+| The key missed on some boots, with the same rbf that took it on others | a command read's address taken the clock the read was first seen: the address could still be moving | the address taken once steady two clocks; a new address with CE/OE still down is a new read |
+| After the game's reset the core never ran a frame: its last address stayed in the vector table, every vblank dropped | with the SH2s reading the cart back to back, the core waited two clocks after each console read before taking the chip, and never got a turn | the PSRAM the core's as soon as the console's read is answered (held), not two clocks later |
+| Still dead in the vector table after that | the core's reads of PSRAM came back **wrong** under the SH2s' traffic. A compositor shrugs off a bad pixel; a CPU fetching a bad reset vector or opcode is dead | **every core read of PSRAM done twice, accepted only when both agree** (a read cut by the console dropped, the clean one kept) |
+
+What found it was a **diagnostic on the console**, not the simulator: a build that prints, on the 32X's screen,
+what the cart answers at each step of the start (the key, the loader's state, the frames, the core's last
+address) and on top of every picture in the game. Three console runs of that narrowed it to the core's PSRAM
+reads. Verilator only reproduced the starvation once its console was made tighter than the default
+(`cart_tb` `TBCYC=10 TBSAMPLE=6 TBGAP=2`), and never the bad data.
+
+The ares model (`neo68k-model` branch) now has the console core's key (off until command 7 with 3, then with 0;
+the window is the cart's PSRAM until then) and its diagnostic commands 13-15. It still answers at once and never
+corrupts a read: **for a CPU core, ares cannot show the failures above.**
+
+Rules added to section 2 for a core that runs a CPU from a memory the console also uses:
+
+11. **Verify every read** the CPU makes from a shared chip (read twice, compare), or give the CPU its own copy of
+    what it runs in a memory the console never reads.
+12. **Take the chip at once** when the console's read is done; a sync delay before every turn can starve the core.
+13. **Build a console diagnostic first**, before the first console test: the key's answer, the core's state and
+    address, its frame count, printed by the 32X on the screen.
+
+## 6. For the next AI
 
 - Read Rayman's `README_FOR_AI.md` and `fpga/README.md`, and U-R-R's `cartridge/fpga` notes, before writing any RTL.
 - Start from Rayman's `map_rayfx.sv` (the wrapper) and its two memory channels; put your engine behind them.
