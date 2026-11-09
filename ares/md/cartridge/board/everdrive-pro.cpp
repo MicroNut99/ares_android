@@ -130,6 +130,11 @@ struct EverDrivePro : Interface {
     bool boot = true, biosVectors = true, palBank = false, sramWritable = false, shadow = false, vramBank = false;
     u16 vramPtr = 0, vramMod = 0, irqCtl = 0;
     bool run = false, irqPending = false;
+    //(Metal Slug CD32X, 9 Nov 2026: as the console's core, fpga/rtl/neo_cart.sv - off until the key, command 7 with 3
+    // then command 7 with 0: until then every read of the window is the cart's PSRAM, as map_ssf's; and the core's
+    // state for the console diagnostic, commands 13-15)
+    bool on = false, key1 = false;
+    u8 dgGo = 0, dgDrop = 0;
     u32 frames = 0, vblanks = 0, sprFrame = 0, animTimer = 0;
     u8 p1 = 0xff, p2 = 0xff, status = 0xff, coin = 0x1f;
     s32 soundLast = -1;
@@ -263,7 +268,7 @@ struct EverDrivePro : Interface {
     }
     bool resetPending = true;                         //(the reset runs on the cart's own thread: main())
     auto main() -> void {
-      if(resetPending) { resetPending = false; reset(); }
+      if(resetPending) { resetPending = false; reset(); dgGo = 0; dgDrop = 0; }
       if(!run) return ed.step(64);
       if(irqPending && r.i < 1) { irqPending = false; return interrupt(Vector::Level1, 1); }
       instructions++;
@@ -271,7 +276,8 @@ struct EverDrivePro : Interface {
     }
     u32 instructions = 0;
     auto go() -> void {                               //the frame: copied for the SH2s, then the vblank
-      if(boot || !run) return;                        //(still booting: the machine is not there yet)
+      dgGo++;
+      if(boot || !run) { dgDrop++; return; }          //(still booting: the machine is not there yet)
       if(auto f = getenv("ARES_NEO68K_DUMP")) {        //<file>: the work RAM at the first 64 vblanks, 64 KB each
         static FILE* fp; static u32 n; if(!fp) fp = fopen(f, "wb");
         if(fp && n++ < 64) { fwrite(wram, 1, 0x10000, fp); fflush(fp); }
@@ -356,6 +362,12 @@ struct EverDrivePro : Interface {
         case 10: wram[pokeAddr & 0xffff] = val; return 0;
         case 11: taken = latest; return (u16)(taken | (snapFrame[taken] & 0x7fff) << 1);
         case 12: return (u16)(snapSpr[taken] & 0xff);   // the sprite auto-animation counter, as the taken buffer saw it
+        //the console diagnostic (neo_cart.sv): 13 the state - the loader at RUN (4) once the reset ran, the copier and the
+        //memory engine idle, run, boot_ok, irq pending, the boot flag, 1; 14 the gos taken / dropped since the reset;
+        //15 the core's address, bits 23-8 (the model: its PC)
+        case 13: return (u16)((resetPending ? 1 : 4) << 13 | (u32)run << 5 | (u32)!resetPending << 4 | (u32)irqPending << 3 | (u32)boot << 2 | 1);
+        case 14: return (u16)(dgGo << 8 | dgDrop);
+        case 15: return (u16)(r.pc >> 8);
         }
       }
       return 0xffff;
@@ -512,7 +524,17 @@ struct EverDrivePro : Interface {
     u32 word = offset(address) >> 1;
     if(neo) {                                         //the core's window (neo68k): a cart address range, or a bank
       u32 local = (n22)address;
-      if(neo->windowAddr) { if(local >= neo->windowAddr && local < neo->windowAddr + 0x38000) return neo->windowRead(local - neo->windowAddr); }
+      if(neo->windowAddr) {
+        if(local >= neo->windowAddr && local < neo->windowAddr + 0x38000) {
+          if(neo->on) return neo->windowRead(local - neo->windowAddr);
+          u32 o = local - neo->windowAddr;            //off: the key, and the read itself the cart's (map_ssf's)
+          if(o >= 0x36000) {
+            u32 k = (o - 0x36000) >> 1, cmd = k >> 8, val = k & 0xff;
+            if(neo->key1 && cmd == 7 && val == 0) { neo->on = true; neo->resetPending = true; neo->run = false; neo->key1 = false; }
+            else neo->key1 = cmd == 7 && val == 3;
+          }
+        }
+      }
       else if(word >> 18 == neo->window) return neo->windowRead(word << 1 & 0x7ffff);
     }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
@@ -604,7 +626,7 @@ struct EverDrivePro : Interface {
   }
 
   auto power(bool reset) -> void override {
-    if(neo) { neo->run = false; neo->resetPending = true; }   //held until the SH2 sends run (command 7)
+    if(neo) { neo->run = false; neo->resetPending = true; neo->on = false; neo->key1 = false; }   //held until the key, then run (command 7)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
