@@ -152,6 +152,7 @@ struct EverDrivePro : Interface {
     u32 lblHi = 0, lbl = 0;                 //the sector label, its high part, then the whole
     bool full = false; u32 have = 0;        //the spare holds sector `have`
     u8 sec[2048] = {};
+    u8 bram[2048] = {}; bool bramSet = false;   //(DraculaX docs/118) the backup RAM's port: written before the start
     u8 pad = 0;                             //the pad (Mednafen's order), before and after the start
     u32 tab[3 + 6 * 101] = {};              //the disc's table for the machine, from the load port
     std::vector<u8> rom;                    //the System Card, from bank 16 at the start
@@ -222,6 +223,7 @@ struct EverDrivePro : Interface {
     }
     std::vector<u8> bram;   //DRACX_BRAM=<file> (2 KB): the backup RAM at power-on, for a recording's replay (the cart: zeros)
     if(auto p = getenv("DRACX_BRAM")) if(FILE* f = fopen(p, "rb")) { bram.resize(2048); if(fread(bram.data(), 1, 2048, f) != 2048) bram.clear(); fclose(f); }
+    if(bram.empty() && dx.bramSet) bram.assign(dx.bram, dx.bram + 2048);   //(docs/118: what the 68000 wrote to the port)
     if(!dxm_power(dx.rom.data(), bram.empty() ? nullptr : bram.data(), (const s32*)dx.tab, dxSector, this)) {
       print("[EverDrive PRO] dracx: the disc's table from the load port was not taken\n"); return;
     }
@@ -256,6 +258,11 @@ struct EverDrivePro : Interface {
       u32 b = off & 0x7fe;
       if(upper) dx.sec[b] = data >> 8;
       if(lower) { dx.sec[b + 1] = data; if(b == 0x7fe) { dx.full = true; dx.have = dx.lbl; } }
+    } else if(off >= 0x50000 && off < 0x50800) {                                //the backup RAM (docs/118): bytes 2k, 2k + 1
+      u8* b = dx.on ? dxm_bram() : dx.bram; u32 k = off & 0x7fe;
+      if(upper) b[k] = data >> 8;
+      if(lower) b[k + 1] = data;
+      if(!dx.on) dx.bramSet = true;
     } else if(off >= 0x41000 && off < 0x41400) {                                //the load port
       if(!(off & 2)) dx.cfgHi = data;
       else if((off >> 2 & 0xff) == 0xff) dx.armed = (dx.cfgHi << 16 | data) == 0x44584f4e;   //the key, not the CD unit's
@@ -266,6 +273,11 @@ struct EverDrivePro : Interface {
   //the frame's snapshot
   auto dxRead6(u32 off, n16& value) -> bool {
     if(off >= 0x22000) return false;            //(map_dx's vw_ce: + 0x00000-0x1ffff, + 0x20000-0x21fff)
+    if(off >= 0x21800) {                        //(docs/118: the backup RAM - word k: bytes 2k high, 2k + 1 low)
+      if(dx.on) dxSync();
+      const u8* b = dx.on ? dxm_bram() : dx.bram; u32 k = off & 0x7fe;
+      value = b[k] << 8 | b[k + 1]; return true;
+    }
     if(!dx.on) { value = 0; return true; }
     dxSync();
     u32 w = off >> 1;
