@@ -83,6 +83,9 @@ ares models since this build:**
 
 ### The cart's FPGA configuration: `mega-pro.rbf` (7 Nov 2026)
 
+**Before building one:** [README-FPGA-FINDINGS.md](README-FPGA-FINDINGS.md) - what ares cannot show about a core
+on the console bus, and the rules the cores that work on the console follow (8 Nov 2026).
+
 The EverDrive PRO's FPGA (Cyclone IV E EP4CE15) is what its configuration file makes it. **If a file named
 `mega-pro.rbf` sits in the same folder as the ROM the EverDrive menu starts - a CD32X launcher
 `EDCD_*.32X` too - the menu loads it instead of the built-in mapper** (krikzz/mega-ed-pub `fpga/README.md`).

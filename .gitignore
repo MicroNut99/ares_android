@@ -20,6 +20,7 @@
 !/LICENSE
 !/README.md
 !/README-CD32X.md
+!/README-FPGA-FINDINGS.md
 !.editorconfig
 !.gitignore
 !.gitattributes
