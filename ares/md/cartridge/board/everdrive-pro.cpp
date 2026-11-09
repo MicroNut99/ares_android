@@ -244,6 +244,12 @@ struct EverDrivePro : Interface {
       if(off >> 1 == 0x40080 >> 1 && !dx.on && dx.armed) dxStart();   //(not before: the 32X's own boot reads the cart there)
       u32 want = dx.on ? (u32)dxm_drive_next() : 0;
       u32 a = dx.on ? dxm_audio() : 0;
+      if(off & 0x10) {   //(DraculaX docs/125, step 22: the console diagnostic's words - the model has no PC or edge count: 0)
+        u32 k = off >> 1 & 7;
+        value = k == 4 ? (n16)(dx.on ? dxm_frame() : 0) : k == 5 ? (n16)want : k == 6 ? (n16)((dx.armed ? 0x8000 : 0) | (dx.on ? 0x4000 : 0))
+              : k == 7 ? (n16)0xd122 : (n16)0;
+        return true;
+      }
       if(off & 8) value = (n16)a;                                               //word 4: CD-DA's play's start, 15-0
       else if(off & 4) value = off & 2 ? (a >> 31 ? 0x8000 : 0) | (a >> 24 & 3) << 13 | (a >> 16 & 0x1f)   //word 3
                                        : 0;                                     //word 2: the load port's busy bit: never
