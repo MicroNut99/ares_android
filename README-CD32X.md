@@ -212,6 +212,9 @@ rate mixes too many costs. The probe measures each cost by itself instead.
 | Jazz, REV EverDrive | Diamondus 1, in front of the giant waterfalls | **3-5 fps** (video, 27 Oct) | - |
 | Hurrican, P1 | stage 1, timing line on | **19.9 fps**: AI 6, MAP 0, CPY 3, SPR 2, OVR 1, HUD 1, WAIT 30 ms (photo) | 29.9-30 fps: HUD 12-15, WAIT 6-10 |
 | OpenLara, v1.4 | Caves | **frame 64-110 ms**, drawing 43-103 ms | frame 41 ms |
+| Jumping Flash, V24 EverDrive + its `mega-pro.rbf` (the cart geometry engine) | World 1-1, the start | **about 11 fps** with 1,600-1,700 triangles (video, 8 Nov 2026) | 30 fps (v1.7, branch `jfgeo-rbf`, an earlier build) |
+| Jumping Flash, V23 EverDrive + rbf | World 2-2 | **8-14 fps** with 400-450 triangles (video, 8 Nov) | 20-30 fps (an earlier build) |
+| Jumping Flash, V23 EverDrive + rbf | World 1-1's bonus stage | **30 fps** (80-100 triangles) | 30 fps |
 
 The Jazz counter could not show less than 10 then, so "10" means "10 or less".
 
@@ -251,6 +254,24 @@ SH2's own free-running timer. It covers:
 
 These are the values "console" uses (`ares/md/m32x/bus-internal.cpp`, with how each one is applied).
 
+### Profiling a game on the console: which timer (8 Nov 2026)
+
+A game's own on-screen profiler is how the console numbers above are read, so its clock has to count on the
+console. **The SH2's free-running timer (FRT) does not, in a game built on the usual 32X `crt0.s`:** it sets
+TCSR to clear the counter on compare match A with OCRA = 1 (the FRT's output drives the 32X's interrupt
+acknowledge), so the counter only ever reads 0 or 1. Jumping Flash V24's profile line read from it was garbage
+on the console. ares models the same clear (`ares/component/processor/sh2/sh7604/timer.cpp`). The timing probe's FRT counts
+because the probe's start-up code does not set the clear.
+
+What works on both: **the SH2's watchdog timer in interval mode** - write `0xA53F` to `0xFFFFFE80` (WTCSR:
+interval mode, on, clock / 8192 = 0.356 ms a tick on NTSC) and read the 8-bit count at `0xFFFFFE81`; it wraps
+every 91 ms, so time each part of a frame and take the whole frame from the vertical blank count. The game must
+not use the watchdog for anything else. (Jumping Flash CD32X: `jflash/src/render.c` `jf_frt`, the HUD's E / L /
+F / A line, from commit `7496a5b`.)
+
+A profile line reads the same in ares with "console" timing and on the console only when both run the same
+build: give each console video the build's commit, and rerun that commit in ares.
+
 ### Where the console data comes from
 
 Every console number in this section, and every one gathered for the next calibration, with its source.
@@ -265,6 +286,7 @@ not in any repository.
 | **OpenJazzCD32X-REV**: `OPENJAZZ_CD32X_HANDOFF.md` (rounds J4-J23d), `docs/R7_FRAME_RATE.md`, `docs/CD32X_ADDENDUM_OPENJAZZ.md` | the game's own fps counter, build by build: J14e 3-7, J15 10-13 (Diamondus 12-13), J23 15-22, J23d 25-30 in open places and 12-18 in busy ones; Turtle Terror 1: 11, then 12-13 with the line-table renderer; the R5 and REV EverDrive rows above | console videos, 5-27 Oct 2026 (named by date and time, e.g. `1005261847`) | not yet: the R5 16 MB build could not be rerun in today's ares |
 | **HurricanCD32X**: `docs/HURRICAN_CD32X_HANDOFF.md` "B1b on the console", `README.md` | the B1b benchmark part by part (RING 8.1-11.3 fps / 88-122 ms with effects 31.6-36.2 ms; FULL 7.4-8.5 fps with three 32X background layers 85 ms); about 19 clocks per keyed pixel read from the cart; the CD loading 42 KB/s; P1's timing line (the row above); P1b above 15 fps, P2 4-5 fps | B1b videos h2, h3 and h7 (by 10 Oct 2026); P1 a photo | **yes** (v1.5): B1b's numbers set the shared-bus model ("Calibration against the games") |
 | **The Sonic CD (2011) port**: `SONICCD_HANDOFF.md`, round S7c3 | the 2011 engine on the SH2 from the cart, drawing off: a steady 30 fps paced (every frame within 16.7-33.3 ms) | a console video (by 15 Oct 2026) | no: reference data (an upper bound for its game logic) |
+| **JumpingFlash_CD32X**: `README.md` (the tested-builds table: V23, V24) | fps and triangles with the cart geometry engine (`fpga/jfgeo`) in World 1-1, its bonus stage and World 2-2; the watchdog-timer profile line from the next build on | console videos, 8 Nov 2026 | not yet: the engine's model is on branch `jfgeo-rbf` |
 | **The manuals**: Sega's 32X hardware manual, Hitachi's SH7604 manual | wait states and the FIFO (32X); the instruction timings (SH-2) | - | the instruction timings (`component/processor/sh2/timing.hpp`) |
 
 The B1b and OpenLara profiler discs are no longer kept; both rebuild from their repositories with
