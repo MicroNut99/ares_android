@@ -576,11 +576,36 @@ struct EverDrivePro : Interface {
     if(sh2Clock && near(now, sh2Clock)) corrupt(sh2Word, data);  //the SH2 was on the cart just now
   }
 
+  //krikzz's edio block at 0xa130d0 (lib_base/base_io.sv), only its USB write (edio everdrive.c ed_cmd_usb_wr:
+  //'+', ~'+', 0x22, ~0x22, the length high byte first, the bytes): with ARES_EDIO_USB=<file> the bytes the MCU
+  //would send to the PC go to that file, FIFOSTAT (0xa130d2) reads both FIFOs empty. Without it: as before.
+  FILE* usbFile = nullptr;
+  bool usbChecked = false;
+  u32 usbState = 0, usbLeft = 0;
+  auto usbOpen() -> bool {
+    if(!usbChecked) {
+      usbChecked = true;
+      if(auto name = getenv("ARES_EDIO_USB")) usbFile = fopen(name, "wb");
+    }
+    return usbFile;
+  }
+  auto usbByte(u8 b) -> void {
+    static const u8 head[4] = {'+', '+' ^ 0xff, 0x22, 0x22 ^ 0xff};
+    if(usbState < 4) { usbState = b == head[usbState] ? usbState + 1 : (b == '+' ? 1 : 0); return; }
+    if(usbState == 4) { usbLeft = b << 8; usbState = 5; return; }
+    if(usbState == 5) { usbLeft |= b; usbState = usbLeft ? 6 : 0; return; }
+    fputc(b, usbFile); fflush(usbFile);
+    if(!--usbLeft) usbState = 0;
+  }
+
   auto readIO(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
+    if(address >> 1 == 0xa130d2 >> 1 && usbOpen()) return 0xc000;
     return data;  //the registers are write-only
   }
 
   auto writeIO(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(getenv("ARES_EDIO_TRACE") && address >> 8 == 0xa130) { static u32 n; if(n++ < 60) print("[edio] write ", hex(address, 6L), " ", hex(data, 4L), " u", (u32)upper, " l", (u32)lower, "\n"); }
+    if(address >> 1 == 0xa130d0 >> 1 && lower && usbOpen()) { usbByte(data.bit(0,7)); return; }
     if(address < 0xa130f0 || address > 0xa130ff) return;
     u32 n = address >> 1 & 7;
     if(n == 0) {

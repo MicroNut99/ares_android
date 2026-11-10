@@ -74,6 +74,7 @@ struct Mega32X : Interface {
     //mapper writes made with RV = 0 were not taken (the cart stayed write-protected); with RV = 1,
     //as edtest and Chilly Willy's SRAM code make them, they are.
     bool cartRegister = address >= 0xa13000 && address <= 0xa130ff;
+    if(getenv("ARES_EDIO_TRACE") && address >= 0xa130d0 && address <= 0xa130df) { static u32 n; if(n++ < 60) print("[32x] /TIME write ", hex(address, 6L), " rv ", (u32)m32x.dreq.vram, " ae ", (u32)m32x.io.adapterEnable, "\n"); }
     if(!cartRegister || !m32x.io.adapterEnable || m32x.dreq.vram) {
       board->writeIO(upper, lower, address, data);
     }
