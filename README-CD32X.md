@@ -341,7 +341,9 @@ over 3 ms (`ARES_NEO68K_COPY_US=<us>`, 0 = instant as before), `latest` changes 
 (bit 10), as `neo_cart.sv` does. With it ares shows the fault: Metal Slug's log disc without the wait (`M3_TAKE_NOWAIT`),
 Mission 1's attract, 8,000 frames: 17 records with the tables changing under the SH2s (instant copy: 0). With v50's
 wait: 3 (at the boot), and 17.9 pictures a second against 24.8 - the take waits for most of a copy at every picture
-(it comes right after a vblank, when the go has just started one).
+(it comes right after a vblank, when the go has just started one). The owner chose to fix it in the core: r18 has three frame buffers
+(a go copies into the one neither the SH2s' nor the latest), and the model follows it (`ARES_NEO68K_BUFFERS=2` for r17):
+the log disc on it, 0 misread records and 24.9 pictures a second; Metal Slug v51 29.0, as v49.
 
 ### Build commands
 

@@ -124,9 +124,14 @@ struct EverDrivePro : Interface {
     u32 romOff = 0, tableOff = 0, spillOff = 0, bootOff = ~0u, windowAddr = 0;   //(windowAddr 0: the bank `window`)
     u32 protocol = 2;                                  //3: the window is 0x38000 bytes (docs/14)
     u8  wram[0x10000], pal[2][0x2000], nv[0x10000];
-    u16 vram[0x8800], snapVram[2][0x8800];
-    u8  snapPal2[2][0x2000];
-    u32 latest = 0, taken = 1, snapFrame[2] = {0, 0}, snapSpr[2] = {0, 0}, pokeAddr = 0;
+    u16 vram[0x8800], snapVram[3][0x8800];
+    u8  snapPal2[3][0x2000];
+    u32 latest = 0, taken = 1, snapFrame[3] = {0, 0, 0}, snapSpr[3] = {0, 0, 0}, pokeAddr = 0;
+    //three frame buffers (neo_cart.sv r18, 10 Nov 2026): a go copies into the one that is neither the SH2s' (taken) nor
+    //the latest; the window's two slots show a physical buffer each (slotBuf), a take puts the latest into the slot the
+    //SH2s are not reading and answers that slot. ARES_NEO68K_BUFFERS=2: r17's two (a copy into ~taken, the slot = it)
+    u32 slot = 1, slotBuf[2] = {0, 1};
+    auto buffers() -> u32 { static u32 n = 0; if(!n) { auto e = getenv("ARES_NEO68K_BUFFERS"); n = e && atoi(e) == 2 ? 2 : 3; } return n; }
     //the go's copy takes time, as neo_cart.sv's does (38,912 words, ~3 ms; console, Metal Slug's USB log 10 Nov 2026:
     //a take during it was handed the buffer still being written). The words land in order over copyLen; latest
     //changes when the copy ends; command 13 shows it (cst, bit 10). ARES_NEO68K_COPY_US=<us> (default 3000; 0: instant)
@@ -357,7 +362,12 @@ struct EverDrivePro : Interface {
       settle();
       if(copying) { copyTo(CopyWords); copying = false; latest = copyBuf; }   //(a go during a copy: the core starts the
                                                                               // next when it ends - here at once)
-      u32 b = taken ^ 1;                              //the buffer the SH2s are not drawing from
+      u32 b = taken ^ 1;                              //the buffer the SH2s are not drawing from (r17)
+      if(buffers() == 3) {                            //r18: neither theirs nor the latest - nor, if two are free, the
+        b = 3;                                        // one the other slot shows
+        for(u32 p : range(3)) if(p != taken && p != latest && p != slotBuf[slot ^ 1]) { b = p; break; }
+        if(b == 3) for(u32 p : range(3)) if(p != taken && p != latest) { b = p; break; }
+      }
       static s64 us = -1;
       if(us < 0) { auto e = getenv("ARES_NEO68K_COPY_US"); us = e ? atoi(e) : 3000; }
       snapFrame[b] = frames; snapSpr[b] = sprFrame;
@@ -380,6 +390,7 @@ struct EverDrivePro : Interface {
       settle();
       if(o < 0x26000) {
         u32 b = o >= 0x13000, i = o - 0x13000 * b;
+        b = buffers() == 3 ? slotBuf[b] : b;
         if(i < 0x11000) return snapVram[b][i >> 1];
         i -= 0x11000; return snapPal2[b][i] << 8 | snapPal2[b][i + 1];
       }
@@ -388,7 +399,7 @@ struct EverDrivePro : Interface {
       if(o >= cmdAt && o < (protocol == 3 ? 0x38000u : 0x80000u)) {
         u32 k = (o - cmdAt) >> 1, cmd = protocol == 3 ? k >> 8 : k >> 12, val = protocol == 3 ? k & 0xff : k & 0xfff;
         switch(cmd) {
-        case 0: return (u16)(frames & 0x7fff) | latest << 15;
+        case 0: return (u16)(frames & 0x7fff) | (latest & 1) << 15;
         case 1: p1 = val; return 0;
         case 2: p2 = val; return 0;
         case 3: status = val; return 0;
@@ -399,7 +410,10 @@ struct EverDrivePro : Interface {
         case 8: pokeAddr = protocol == 3 ? (pokeAddr & 0xff00) | val : (pokeAddr & 0xf000) | val; return 0;
         case 9: pokeAddr = protocol == 3 ? (pokeAddr & 0x00ff) | val << 8 : (pokeAddr & 0x0fff) | (val & 0xf) << 12; return 0;
         case 10: wram[pokeAddr & 0xffff] = val; return 0;
-        case 11: taken = latest; return (u16)(taken | (snapFrame[taken] & 0x7fff) << 1);
+        case 11:
+          if(buffers() == 2) { taken = latest; return (u16)(taken | (snapFrame[taken] & 0x7fff) << 1); }
+          taken = latest; slot ^= 1; slotBuf[slot] = latest;
+          return (u16)(slot | (snapFrame[taken] & 0x7fff) << 1);
         case 12: return (u16)(snapSpr[taken] & 0xff);   // the sprite auto-animation counter, as the taken buffer saw it
         //the console diagnostic (neo_cart.sv): 13 the state - the loader at RUN (4) once the reset ran, the copier and the
         //memory engine idle, run, boot_ok, irq pending, the boot flag, 1; 14 the gos taken / dropped since the reset;
@@ -691,6 +705,7 @@ struct EverDrivePro : Interface {
 
   auto power(bool reset) -> void override {
     if(neo) { neo->run = false; neo->resetPending = true; neo->on = false; neo->key1 = false; }   //held until the key, then run (command 7)
+    if(neo) { neo->taken = 1; neo->slot = 1; neo->slotBuf[0] = 0; neo->slotBuf[1] = 1; neo->latest = 0; neo->copying = false; }
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
