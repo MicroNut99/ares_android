@@ -127,6 +127,31 @@ struct EverDrivePro : Interface {
     u16 vram[0x8800], snapVram[2][0x8800];
     u8  snapPal2[2][0x2000];
     u32 latest = 0, taken = 1, snapFrame[2] = {0, 0}, snapSpr[2] = {0, 0}, pokeAddr = 0;
+    //the go's copy takes time, as neo_cart.sv's does (38,912 words, ~3 ms; console, Metal Slug's USB log 10 Nov 2026:
+    //a take during it was handed the buffer still being written). The words land in order over copyLen; latest
+    //changes when the copy ends; command 13 shows it (cst, bit 10). ARES_NEO68K_COPY_US=<us> (default 3000; 0: instant)
+    u16 copyVram[0x8800]; u8 copyPal[0x2000];
+    bool copying = false; u32 copyBuf = 0, copyDone = 0; u64 copyStart = 0, copyLen = 0;
+    static constexpr u32 CopyWords = 0x8800 + 0x1000;
+    auto clockNow() -> u64 {
+      if(m32x.shm.active()) return m32x.shm.clock();
+      if(m32x.shs.active()) return m32x.shs.clock();
+      return cpu.clock();
+    }
+    auto copyTo(u32 n) -> void {                      //the words up to n written into the buffer
+      for(; copyDone < n; copyDone++) {
+        u32 w = copyDone;
+        if(w < 0x8800) snapVram[copyBuf][w] = copyVram[w];
+        else { u32 i = (w - 0x8800) * 2; snapPal2[copyBuf][i] = copyPal[i]; snapPal2[copyBuf][i + 1] = copyPal[i + 1]; }
+      }
+    }
+    auto settle() -> void {                           //the copy as far as it has come by now
+      if(!copying) return;
+      u64 now = clockNow();
+      u64 el = now > copyStart ? now - copyStart : 0;
+      if(el >= copyLen) { copyTo(CopyWords); copying = false; latest = copyBuf; return; }
+      copyTo((u32)(el * CopyWords / copyLen));
+    }
     bool boot = true, biosVectors = true, palBank = false, sramWritable = false, shadow = false, vramBank = false;
     u16 vramPtr = 0, vramMod = 0, irqCtl = 0;
     bool run = false, irqPending = false;
@@ -261,6 +286,7 @@ struct EverDrivePro : Interface {
       boot = true; biosVectors = true; palBank = false; sramWritable = false; shadow = false;
       vramBank = false; vramPtr = 0; vramMod = 0; irqCtl = 0;
       irqPending = false; frames = 0; vblanks = 0; sprFrame = 0; animTimer = 0; soundLast = -1; sound.clear();
+      copying = false; latest = 0;                   //(the core: the copier idle, latest 0)
       M68000::power();
       r.a[7] = read(1, 1, 0) << 16 | read(1, 1, 2);
       r.pc   = read(1, 1, 4) << 16 | read(1, 1, 6);
@@ -328,10 +354,22 @@ struct EverDrivePro : Interface {
           if(same && e[0] % 60 == 0) print("[neo68k] frame ", e[0], ": the same\n");
         }
       }
+      settle();
+      if(copying) { copyTo(CopyWords); copying = false; latest = copyBuf; }   //(a go during a copy: the core starts the
+                                                                              // next when it ends - here at once)
       u32 b = taken ^ 1;                              //the buffer the SH2s are not drawing from
-      memory::copy<u16>(snapVram[b], vram, 0x8800);
-      memory::copy<u8>(snapPal2[b], pal[palBank], 0x2000);
-      snapFrame[b] = frames; snapSpr[b] = sprFrame; latest = b;
+      static s64 us = -1;
+      if(us < 0) { auto e = getenv("ARES_NEO68K_COPY_US"); us = e ? atoi(e) : 3000; }
+      snapFrame[b] = frames; snapSpr[b] = sprFrame;
+      if(us == 0) {
+        memory::copy<u16>(snapVram[b], vram, 0x8800);
+        memory::copy<u8>(snapPal2[b], pal[palBank], 0x2000);
+        latest = b;
+      } else {                                        //the state at the go (the core's writes wait meanwhile), landing
+        memory::copy<u16>(copyVram, vram, 0x8800);    // word by word
+        memory::copy<u8>(copyPal, pal[palBank], 0x2000);
+        copying = true; copyBuf = b; copyDone = 0; copyStart = clockNow(); copyLen = Thread::Second / 1'000'000 * (u64)us;
+      }
       if(!(irqCtl & 8) && animTimer++ >= (u32)(irqCtl >> 8)) { animTimer = 0; sprFrame++; }
       vblanks++; frames++;
       irqPending = true;
@@ -339,6 +377,7 @@ struct EverDrivePro : Interface {
     //a read of the SH2s' window (o: the offset in the bank)
     auto windowRead(u32 o) -> n16 {
       if(getenv("ARES_NEO_TRACE")) { static u32 n; if(n++ < 40) print("[neo68k] window read ", hex(o, 5L), " run ", (u32)run, " pc ", hex(r.pc, 6L), "\n"); }
+      settle();
       if(o < 0x26000) {
         u32 b = o >= 0x13000, i = o - 0x13000 * b;
         if(i < 0x11000) return snapVram[b][i >> 1];
@@ -365,7 +404,7 @@ struct EverDrivePro : Interface {
         //the console diagnostic (neo_cart.sv): 13 the state - the loader at RUN (4) once the reset ran, the copier and the
         //memory engine idle, run, boot_ok, irq pending, the boot flag, 1; 14 the gos taken / dropped since the reset;
         //15 the core's address, bits 23-8 (the model: its PC)
-        case 13: return (u16)((resetPending ? 1 : 4) << 13 | (u32)run << 5 | (u32)!resetPending << 4 | (u32)irqPending << 3 | (u32)boot << 2 | 1);
+        case 13: return (u16)((resetPending ? 1 : 4) << 13 | (u32)copying << 10 | (u32)run << 5 | (u32)!resetPending << 4 | (u32)irqPending << 3 | (u32)boot << 2 | 1);
         case 14: return (u16)(dgGo << 8 | dgDrop);
         case 15: return (u16)(r.pc >> 8);
         }

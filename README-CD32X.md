@@ -336,8 +336,12 @@ tighten the 75-99 band.
 
 What ares did not show, and the log did: the core's frame copy runs ~3 ms of each vblank on the console, and a take
 during it was handed the buffer still being written (the sprite tables changing under the SH2s in every mission);
-the model's copy (`neo68k`) is instant. Metal Slug v50 waits for the copy before it takes. The model does not yet
-give the copy its length (~3 ms, 38,912 words), so ares cannot show that fault - the next thing to model on this branch.
+the model's copy (`neo68k`) was instant. **Modelled now** (this branch, 10 Nov 2026): a go's copy lands word by word
+over 3 ms (`ARES_NEO68K_COPY_US=<us>`, 0 = instant as before), `latest` changes when it ends, and command 13 shows it
+(bit 10), as `neo_cart.sv` does. With it ares shows the fault: Metal Slug's log disc without the wait (`M3_TAKE_NOWAIT`),
+Mission 1's attract, 8,000 frames: 17 records with the tables changing under the SH2s (instant copy: 0). With v50's
+wait: 3 (at the boot), and 17.9 pictures a second against 24.8 - the take waits for most of a copy at every picture
+(it comes right after a vblank, when the go has just started one).
 
 ### Build commands
 
