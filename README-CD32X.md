@@ -336,9 +336,8 @@ tighten the 75-99 band.
 
 What ares did not show, and the log did: the core's frame copy runs ~3 ms of each vblank on the console, and a take
 during it was handed the buffer still being written (the sprite tables changing under the SH2s in every mission);
-the model's copy (`neo68k`) is instant. Metal Slug v50 waits for the copy before it takes (rule 13 of
-README-FPGA-FINDINGS.md's section 5 applies: model the core's timing where a game's behaviour depends on it - here
-the copy's length is not modelled yet).
+the model's copy (`neo68k`) is instant. Metal Slug v50 waits for the copy before it takes. The model does not yet
+give the copy its length (~3 ms, 38,912 words), so ares cannot show that fault - the next thing to model on this branch.
 
 ### Build commands
 
