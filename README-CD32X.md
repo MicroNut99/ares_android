@@ -310,6 +310,36 @@ ares-headless --game OpenLaraCD32X_v14r1_PROF.cue --machine cd32x --bios-us us.b
   --press 310: --screenshot 1500:ol.ppm
 ```
 
+### Calibration: Metal Slug CD32X with a CPU on the cart (v50 USB log, 10 Nov 2026)
+
+The first game measured on the console by a log instead of a screen: Metal Slug CD32X's USB log disc (its
+`docs/15_USBLOG.md`; the stack's command 102) sends, every four pictures, the 32X's vblank count, the pictures and
+the sprite strips drawn, out of the Mega EverDrive PRO's USB port. The owner played all six missions on the console
+(9,817 records, 39,268 pictures); ares (`ARES_32X_TIMING=console`, this branch, `ARES_EDIO_USB=<file>` for the same
+log) ran the same disc's attract for 14,400 frames. The places differ (play against the attract), so the two are
+compared by load - the time a picture takes against the strips it draws (the median of each band; a picture's
+time comes in whole vblanks):
+
+| Strips a picture | ares ms (pictures) | console ms (pictures) |
+|---|---|---|
+| 50-74 | 50.0 (1,424) | 50.0 (11,828) |
+| 75-99 | 50.0 (100) | 58.4 (12,616) |
+| 100-124 | 62.5 (20) | 62.5 (5,896) |
+| 125-149 | 62.5 (76) | 62.5 (2,652) |
+| 150-174 | 66.7 (72) | 66.7 (184) |
+| 0-49 | 21-38 | 38-50 (the console's: play's few-sprite moments; ares': the attract's text screens) |
+
+Where both have pictures the "console" values match the console, so v1.5's keys stay as they are. The console's
+lower frame rate in play (median 15-20 pictures a second against the attract's 25 in ares) is the load: play draws
+80-130 strips where the attract draws about 60. A same-place comparison (the attract on the console, logged) would
+tighten the 75-99 band.
+
+What ares did not show, and the log did: the core's frame copy runs ~3 ms of each vblank on the console, and a take
+during it was handed the buffer still being written (the sprite tables changing under the SH2s in every mission);
+the model's copy (`neo68k`) is instant. Metal Slug v50 waits for the copy before it takes (rule 13 of
+README-FPGA-FINDINGS.md's section 5 applies: model the core's timing where a game's behaviour depends on it - here
+the copy's length is not modelled yet).
+
 ### Build commands
 
 The probe disc (in the CD32X BootCamp folder; `EDCD=1` also makes the EverDrive launcher, and the
