@@ -107,7 +107,7 @@ struct EverDrivePro : Interface {
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
   };
-  static constexpr const char* rbfModels[] = {"ssf", "dracx"};    //the models this board has (more as cores are added)
+  static constexpr const char* rbfModels[] = {"ssf", "dracx", "ordbg", "orfx"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -145,6 +145,20 @@ struct EverDrivePro : Interface {
   //runs it at the PC Engine's master clock, and an access to those banks brings it to the accessing CPU's time first.
   //Not modelled: the engine's holds of the master clock for its own memories (no time in the game's), the save state.
   bool dracx = false;                       //rbfModel == "dracx"
+  //OutRun CD32X's debug core (fpga/ordbg, ordbg_model.h): map_ssf and a recorder answering cart 0x3E0000-0x3EFFFF
+  bool ordbg = false;                       //rbfModel == "ordbg"
+  OrDbg od;
+  //OutRun CD32X's renderer core (fpga/orfx, orfx/orfx_board.h): the debug core above plus the renderer answering cart
+  //0x380000-0x3DFFFF once its key is read
+  bool orfx = false;                        //rbfModel == "orfx"
+  OrFx fx;
+  u32 odV = 0; u64 odLines = 0;           //the model's time: the VDP's lines counted (63.6 us each, NTSC; the
+  auto nowUs() -> u64 {                   //threads' clocks are not absolute: the scheduler subtracts from them)
+    u32 v = vdp.vcounter();
+    u32 d = (v - odV) & 511; if(d > 100) d = 1;    //(the counter jumps from its bottom line to its top: one line)
+    odLines += d; odV = v;
+    return odLines * 63556 / 1000;
+  }
   struct Dx {
     bool on = false;                        //started (the read of + 0x40080)
     bool armed = false;                     //the load port's word 0xFF was 'DXON' (DraculaX docs/102): the start read may start
@@ -282,6 +296,8 @@ struct EverDrivePro : Interface {
   auto load() -> void override {
     identifyRbf();
     dracx = rbfModel == "dracx";
+    orfx = rbfModel == "orfx";
+    ordbg = rbfModel == "ordbg" || orfx;
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
     //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND
@@ -351,6 +367,17 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(orfx) {
+      u32 local = (n22)address; u16 v;
+      if(fx.read(local, v, nowUs(), [&](u32 a) -> u16 { return (u16)ram[a >> 1]; })) return v;
+    }
+    if(ordbg) {
+      u32 local = (n22)address; u64 us = nowUs();
+      if(local >> 16 == 0x3e) {
+        uint8_t b8[8]; for(u32 n : range(8)) b8[n] = bank[n];
+        uint16_t v; if(od.read(local & 0xffff, v, b8, writeEnable, us)) return v;
+      } else od.access(offset(address), false, 0, local >> 19, us);
+    }
     if(dracx) {
       u32 b = word >> 18, off = (word & 0x3ffff) << 1; n16 v;
       if(b == bank[7] && dxRead7(off, v)) return v;
@@ -369,6 +396,7 @@ struct EverDrivePro : Interface {
   }
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(ordbg && ((u32)(n22)address >> 16) != 0x3e) od.access(offset(address), true, data, (u32)(n22)address >> 19, nowUs());
     if(!writeEnable || writeProtect) return;
     u32 word = offset(address) >> 1;
     if(dracx && word >> 18 == bank[7]) dxWrite7((word & 0x3ffff) << 1, upper, lower, data);   //(the bank's memory too)
@@ -403,6 +431,7 @@ struct EverDrivePro : Interface {
   auto writeIO(n1 upper, n1 lower, n24 address, n16 data) -> void override {
     if(address < 0xa130f0 || address > 0xa130ff) return;
     u32 n = address >> 1 & 7;
+    if(ordbg) od.regWrite(n, data);
     if(n == 0) {
       if(!data.bit(15)) return;  //P must be set
       mode32x     = data.bit(14);
@@ -447,6 +476,8 @@ struct EverDrivePro : Interface {
 
   auto power(bool reset) -> void override {
     dx = {};   //(dracx: the engine at its reset until the start read)
+    od.reset(reset);   //(ordbg: off until its key; the resets counted)
+    fx.reset(reset);   //(orfx: off until its key)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
