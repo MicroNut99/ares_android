@@ -107,7 +107,7 @@ struct EverDrivePro : Interface {
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
   };
-  static constexpr const char* rbfModels[] = {"ssf", "dracx"};    //the models this board has (more as cores are added)
+  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -159,11 +159,35 @@ struct EverDrivePro : Interface {
   } dx;
   static constexpr u32 MasterClock = 21'477'270;   //the PC Engine's (NTSC 6 x 3.579545 MHz)
 
-  auto frequency() -> u32 override { return dracx ? MasterClock : Interface::frequency(); }
+  //Gate of Thunder CD32X (MicroNut99/Gate-of-Thunder_CD32X docs/36, docs/37): the 'gotx' configuration - map_ssf (krikzz's,
+  //unchanged) with GoT's PC Engine CD engine beside it. Its whole contract is bank 26 (docs/36 §2, docs/38: page 6's window 6):
+  //+0x00000-0x213FF the video window (VRAM, stamps, colours, sprite table, snapshot, line table), +0x40000 the register window
+  //(+0x40080 the start), +0x41000 the CD unit's load port (word 0xFF the key 'GTON'), +0x48000 the pad. No sector feed: the
+  //data track is in PSRAM chip 1 from bank 16 (track 2, LBA 3590 on, 2 KB a sector, 64 KB skipped at sector 992: docs/38),
+  //the System Card at bank 27. The machine is gotm.c (board/gotx: Dracula X's dxm.c with GoT's timer, equal to Mednafen from
+  //power-on, docs/35), in namespace gotx. Not modelled, as dracx: the engine's own master-clock holds, the save state.
+  bool gotx = false;                        //rbfModel == "gotx"
+  inline static u64 gxPadReads = 0;
+  struct Gx {
+    bool on = false, armed = false;         //started (the read of + 0x40080); the key taken
+    u16 cfgHi = 0; u32 cfg[256] = {};       //the load port: FwState's words (cd_fw.h)
+    u8 pad = 0;
+    u32 tab[3 + 6 * 101] = {};
+    std::vector<u8> rom;                    //the System Card, from bank 27 at the start
+  } gx;
+  static constexpr u32 GxBank = 26, GxDataBank = 16, GxScBank = 27, GxLba0 = 3590, GxSectors = 1882, GxPageSectors = 992;
+
+  auto frequency() -> u32 override { return dracx || gotx ? MasterClock : Interface::frequency(); }
 
   //the cart's thread: the machine to its own time, a few hundred master clocks at a time; while it waits for a
   //sector (dxm_waiting), its time stands still and only the thread's goes on
   auto main() -> void override {
+    if(gotx) {
+      if(!gx.on) return step(256);
+      if(getenv("GOTX_TRACE")) { static u64 n; if(++n % 83'000 == 0) print("[gotx] machine frame ", gotm_frame(), " time ", (s64)gotm_now(), " drive next ", gotm_drive_next(), " missed ", gotm_missed(), " pad reads ", gxPadReads, " pad ", hex(gx.pad, 2L), "\n"); }
+      s64 t0 = gotm_now(), t = gotm_run_until(t0 + 256);
+      return step(t <= t0 ? 256 : (u32)(t - t0));
+    }
     if(!dracx) return Interface::main();
     if(!dx.on) return step(256);
     if(getenv("DRACX_TRACE")) {   //(a line about every second of the cart's thread: the machine's state)
@@ -298,9 +322,89 @@ struct EverDrivePro : Interface {
     return true;
   }
 
+  //GOTX_MASKS / GOTX_HASHES / GOTX_BRAM: as DRACX_* (a recording's pad from power-on, each frame's gotm_hash, the backup RAM)
+  inline static std::vector<u16> gxMasks;
+  inline static FILE* gxHashes = nullptr;
+  static auto gxFrame(void*, long k) -> void {
+    if(gxHashes) { fprintf(gxHashes, "frame %ld hash %08x\n", k, gotm_hash(0)); fflush(gxHashes); }
+    if(!gxMasks.empty()) gotm_pad(k + 1 < (long)gxMasks.size() ? gxMasks[k + 1] : 0);
+    if(auto p = getenv("GOTX_POKE")) { unsigned a, v; if(sscanf(p, "%x,%x", &a, &v) == 2) gotm_base_ram()[a & 0x1fff] = (u8)v; }   //(the recordings' lives poke)
+  }
+  //a sector from PSRAM chip 1 (the data track from bank 16, the even byte the word's high half: docs/33)
+  static auto gxSector(void* user, s32 lba, u8* out) -> int {
+    auto* e = (EverDrivePro*)user;
+    if(lba < (s32)GxLba0 || lba >= (s32)(GxLba0 + GxSectors)) return 0;
+    u32 s = (u32)(lba - GxLba0);   //(docs/38: from sector 992, 64 KB on - the save area's hole at page 4's top)
+    u32 w = (GxDataBank << 18) + s * 1024 + (s >= GxPageSectors ? 0x8000 : 0);
+    for(u32 n : range(1024)) { n16 v = e->ram[w + n]; out[2 * n] = v >> 8; out[2 * n + 1] = v; }
+    return 1;
+  }
+  auto gxStart() -> void {
+    gx.rom.resize(256_KiB);
+    for(u32 n : range(128_KiB)) { n16 w = ram[GxScBank << 18 | n]; gx.rom[2 * n] = w >> 8; gx.rom[2 * n + 1] = w; }
+    ::memset(gx.tab, 0, sizeof gx.tab);
+    gx.tab[0] = gx.cfg[12]; gx.tab[1] = gx.cfg[13]; gx.tab[2] = gx.cfg[14];
+    for(u32 t : range(33)) {
+      u32* x = gx.tab + 3 + 6 * t; const u32* c = gx.cfg + 16 + 4 * t;
+      x[0] = c[0]; x[1] = c[1]; x[2] = c[2]; x[3] = c[3]; x[4] = (c[3] & 4) ? 1 : 0; x[5] = (c[3] & 4) ? 2048 : 2352;
+    }
+    std::vector<u8> bram;   //(the cart: Mednafen's blank one - gotm_power(NULL); its port is an open contract item, docs/36)
+    if(auto p = getenv("GOTX_BRAM")) if(FILE* f = fopen(p, "rb")) { bram.resize(2048); if(fread(bram.data(), 1, 2048, f) != 2048) bram.clear(); fclose(f); }
+    if(!gotm_power(gx.rom.data(), bram.empty() ? nullptr : bram.data(), (const s32*)gx.tab, gxSector, this)) {
+      print("[EverDrive PRO] gotx: the disc's table from the load port was not taken\n"); return;
+    }
+    gxMasks.clear();
+    if(auto p = getenv("GOTX_MASKS")) if(FILE* f = fopen(p, "rb")) { u16 m; while(fread(&m, 2, 1, f) == 1) gxMasks.push_back(m); fclose(f);
+      print("[EverDrive PRO] gotx: the pad from ", p, " (", gxMasks.size(), " frames)\n"); }
+    if(auto p = getenv("GOTX_HASHES")) gxHashes = fopen(p, "w");
+    gotm_on_frame(gxFrame, nullptr);
+    if(gxMasks.empty()) gotm_pad_now(gx.pad);
+    gx.on = true;
+    print("[EverDrive PRO] gotx: the engine started (tracks ", gx.tab[0], "-", gx.tab[1], ", lead-out ", (s32)gx.tab[2], ")\n");
+  }
+  //bank 26 (docs/36 §2, docs/38): a read; false = map_ssf answers (the bank's memory) - before the key everything is his
+  auto gxRead(u32 off, n16& value) -> bool {
+    if(off >= 0x48000 && off < 0x49000) {   //(map_got: 0 until the start)
+      gxPadReads++;
+      if(gx.on) { u8 p = off >> 4; if(p != gx.pad && getenv("GOTX_TRACE")) print("[gotx] pad ", hex(p, 2L), " at machine frame ", gotm_frame(), "\n");
+        gx.pad = p; if(gxMasks.empty()) gotm_pad_now(gx.pad); }
+      return false;
+    }
+    if(!gx.armed) return false;
+    if(off >= 0x40000 && off < 0x40100) {
+      dxSync();
+      if(off >> 1 == 0x40080 >> 1 && !gx.on) gxStart();
+      u32 want = gx.on ? (u32)gotm_drive_next() : 0, a = gx.on ? gotm_audio() : 0;
+      if(off & 8) value = (n16)a;
+      else if(off & 4) value = off & 2 ? (a >> 31 ? 0x8000 : 0) | (a >> 24 & 3) << 13 | (a >> 16 & 0x1f) : 0;   //(word 2: the load port's busy bit: never)
+      else if(off & 2) value = want >> 16 & 0x1f;
+      else value = (n16)want;
+      return true;
+    }
+    if(off >= 0x22000) return false;            //(map_got's vw_ce: + 0x00000-0x1ffff, + 0x20000-0x21fff)
+    if(!gx.on) { value = 0; return true; }
+    dxSync();
+    u32 w = off >> 1;
+    if(w < 0x10000) value = gotm_vram()[w];
+    else if((w -= 0x10000) < 0x400) value = gotm_stamps()[w];
+    else if(w < 0x600) value = gotm_colors()[w - 0x400] & 0x1ff;
+    else if(w < 0x700) value = gotm_sat()[w - 0x600];
+    else if(w < 0x705) value = gotm_snapshot()[w - 0x700];
+    else if(w >= 0x800) value = gotm_lines()[(w & 0xff) * 2 + (w >> 8 & 1)] & (w & 0x100 ? 0x1ff : 0x3ff);
+    else value = 0;
+    return true;
+  }
+  auto gxWrite(u32 off, n1 upper, n1 lower, n16 data) -> void {
+    if(off < 0x41000 || off >= 0x41400) return;   //the load port (the bank's memory written too, as on the cart)
+    if(!(off & 2)) gx.cfgHi = data;
+    else if((off >> 2 & 0xff) == 0xff) gx.armed = (gx.cfgHi << 16 | data) == 0x47544f4e;   //'GTON'
+    else gx.cfg[off >> 2 & 0xff] = gx.cfgHi << 16 | data;
+  }
+
   auto load() -> void override {
     identifyRbf();
     dracx = rbfModel == "dracx";
+    gotx = rbfModel == "gotx";
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
     //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND
@@ -370,6 +474,10 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(gotx) {
+      u32 off = (word & 0x3ffff) << 1; n16 v;
+      if(word >> 18 == GxBank && gxRead(off, v)) return v;
+    }
     if(dracx && dx.armed) {   //(DraculaX docs/124, the core's step 21: map_ssf's until the key, as the cores that work on the console)
       u32 b = word >> 18, off = (word & 0x3ffff) << 1; n16 v;
       if(b == bank[7] && dxRead7(off, v)) return v;
@@ -391,6 +499,7 @@ struct EverDrivePro : Interface {
   }
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(gotx && offset(address) >> 19 == GxBank) gxWrite((offset(address) & 0x7ffff), upper, lower, data);   //(map_got takes any write there, docs/36)
     if(!writeEnable || writeProtect) return;
     u32 word = offset(address) >> 1;
     if(dracx && word >> 18 == bank[7]) dxWrite7((word & 0x3ffff) << 1, upper, lower, data);   //(the bank's memory too)
@@ -469,6 +578,7 @@ struct EverDrivePro : Interface {
 
   auto power(bool reset) -> void override {
     dx = {};   //(dracx: the engine at its reset until the start read)
+    gx = {};   //(gotx: the same; off at the console's reset too, docs/36)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
