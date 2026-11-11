@@ -263,7 +263,8 @@ struct EverDrivePro : Interface {
     if(off >= 0x60000 && off < 0x60800) {                                       //the sector's 2 KB (command 91)
       u32 b = off & 0x7fe;
       if(upper) dx.sec[b] = data >> 8;
-      if(lower) { dx.sec[b + 1] = data; if(b == 0x7fe) { dx.full = true; dx.have = dx.lbl; } }
+      if(lower) { dx.sec[b + 1] = data; if(b == 0x7fe) { dx.full = true; dx.have = dx.lbl;
+        if(auto p = getenv("DRACX_FEEDLOG")) { static FILE* f = fopen(p, "w"); if(f) { fprintf(f, "%u\n", (unsigned)dx.lbl); fflush(f); } } } }   //(the sectors fed, in order: DraculaX docs/171)
     } else if(off >= 0x50000 && off < 0x50800) {                                //the backup RAM (docs/118): bytes 2k, 2k + 1
       u8* b = dx.on ? dxm_bram() : dx.bram; u32 k = off & 0x7fe;
       if(upper) b[k] = data >> 8;
@@ -373,6 +374,9 @@ struct EverDrivePro : Interface {
       u32 b = word >> 18, off = (word & 0x3ffff) << 1; n16 v;
       if(b == bank[7] && dxRead7(off, v)) return v;
       if(b == bank[6] && dxRead6(off, v)) return v;
+      //(DraculaX docs/171: map_ssf_dx gives chip 1 - banks 16-30 - to the engine once it is started: the System
+      //Card is read there.  The console's reads of those banks then get whatever the engine is reading: not theirs)
+      if(dx.on && b >= 16 && b <= 30) return (n16)(0xdead ^ word);
     }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
