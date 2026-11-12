@@ -138,6 +138,12 @@ a run with no trap and with the faults handled is the least to ask before a cons
 | `DRACX_FEEDLOG=<file>` | branch `dracx-bram`, everdrive-pro.cpp | every sector DraculaX's core asks for and gets, in order | |
 | `ARES_RV_GARBAGE=1`, `ARES_RV_LOG=1` | everdrive-pro.cpp | an SH2 read of the cart while RV = 1: the EverDrive's answer (garbage) for every cart / which SH2 read where | |
 
+**What ares cannot trap at all: the pins.** ares' memories are ideal: a write lands where the model says. On the
+console a core that shares the EverDrive's SRAM with the console must never let the SRAM's address change while its
+WE is on (OutRun CD32X kit 9: stray tiles in tile RAM and specks in the picture, never seen here). That trap lives
+in the core's Verilator bench (CannonballCD32X `fpga/orfx/sim/tb_orfx.cpp`, "TRAP SRAM"); a core is not ready for
+the console until its bench has the memories' own rules as traps and counts none.
+
 **The trap ares cannot have, and what replaces it:** the USB side taking the cart's memory during a run. It froze
 DraculaX CD32X v14-v25 (MicroNut99/DraculaX_32X docs/177-178): the MCU's address and OE replace the console's on the
 chip, nothing waits, nothing is told. `ARES_EDP_USB` shows what a game does when it happens; on the console, OutRun's
