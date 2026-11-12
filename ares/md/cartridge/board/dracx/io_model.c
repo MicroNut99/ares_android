@@ -120,13 +120,36 @@ int64_t io_next_event(const Hw *io)
 
 /* the ADPCM DMA's next byte from the drive (Mednafen: in each PCECD_Run - at the CD unit's events and at the CPU's
    accesses to it, not at a time between; docs/93) */
+#if !defined(__sh__) && defined(AD_LOG)
+/* docs/191: how the game uses ADPCM (RUN_ADLOG=1): each play with its address, length and rate, and how the bytes came
+   since the play before - the drive's DMA or the CPU's own writes; the sector the drive is at */
+#include <stdio.h>
+#include <stdlib.h>
+static long ad_dma_n, ad_cpu_n, ad_dma_first = -1; static unsigned ad_dma_wa;
+static FILE *ad_ev_f; static long ad_ev_n;
+void ad_log_event(int kind, unsigned v)   /* (RUN_ADEV=<file>: the log the core's ring will hold - kind 0 a sector taken, 8-15 a write to $1808-$180F) */
+{
+    if (!getenv("RUN_ADEV")) return;
+    if (!ad_ev_f) ad_ev_f = fopen(getenv("RUN_ADEV"), "w");
+    if (ad_ev_f) { fprintf(ad_ev_f, "%ld %d %X\n", ad_ev_n++, kind, v); fflush(ad_ev_f); }
+}
+#define AD_LOG_DMA(io) do { if (ad_dma_first < 0) { ad_dma_first = (long)(io)->scsi.sector_addr; ad_dma_wa = (io)->write_addr; } ad_dma_n++; } while (0)
+#define AD_LOG_CPU(io) (ad_cpu_n++)
+#define AD_LOG_PLAY(io, v) do { if (getenv("RUN_ADLOG")) printf("adpcm play: cmd %02X addr %04X read %04X length %04X freq %d | since the last: DMA %ld bytes (from write %04X, drive at %ld), CPU %ld bytes\n", (v), (io)->addr, (io)->read_addr, (io)->length, (io)->freq, ad_dma_n, ad_dma_wa, ad_dma_first, ad_cpu_n); ad_dma_n = ad_cpu_n = 0; ad_dma_first = -1; } while (0)
+#define AD_LOG_W(off, v) ad_log_event((int)((off) & 15), (unsigned)(v))
+#else
+#define AD_LOG_W(off, v) do { } while (0)
+#define AD_LOG_DMA(io) do { } while (0)
+#define AD_LOG_CPU(io) do { } while (0)
+#define AD_LOG_PLAY(io, v) do { } while (0)
+#endif
 static void adpcm_dma(Hw *io)
 {
     if (io->write_pending <= 0 && (io->port[0xB] & 3)) {                 /* ADPCM DMA: a byte from the drive */
         if (!io->scsi.have) note(io, "ADPCM DMA from the CD (no drive)");
         else {
             scsi_run(io, io->now);
-            if (!SIG(0x002) && SIG(0x001) && SIG(0x008) && !SIG(0x040)) { io->wp_value = read_1808(io); io->write_pending = 10 * 3; }
+            if (!SIG(0x002) && SIG(0x001) && SIG(0x008) && !SIG(0x040)) { io->wp_value = read_1808(io); io->write_pending = 10 * 3; AD_LOG_DMA(io); }
         }
     }
 }
@@ -366,6 +389,18 @@ int io_read(Hw *io, unsigned off, int in_block_move, uint8_t *v)
    pce_psg.cpp Write()): [ch * 8 + r] channel ch's register r (2 frequency low, 3 high, 4 control, 5 balance, 6 the
    last byte written in DDA mode, 7 noise); [48] $0800, [49] $0801, [56] $0808, [57] $0809; [256 + ch * 32 + n] the
    waveforms. Not part of Hw: the engine never reads it. */
+#ifndef __sh__
+/* docs/191 (the cart core's step 61): the CD unit's log for the sampled sound - a ring of 128 words the console reads
+   in the video window: 0 000 rrrr vvvvvvvv = v written to $180r (r 8-15), 1 sss... = the drive took sector s (0x7FFF
+   past 32,767); io_cdlog_wp: the next word's place. As dx_engine.sv's cdl_m. */
+static uint16_t cdl_m[128]; static unsigned cdl_wp;
+const uint16_t *io_cdlog(void) { return cdl_m; }
+unsigned io_cdlog_wp(void) { return cdl_wp; }
+void io_cdlog_put(unsigned w) { cdl_m[cdl_wp] = (uint16_t)w; cdl_wp = (cdl_wp + 1) & 127; }
+#define CDL_PUT(w) io_cdlog_put(w)
+#else
+#define CDL_PUT(w) ((void)0)
+#endif
 static uint8_t psg_m[512]; static unsigned psg_sel, psg_ctl[6], psg_ix[6]; static unsigned long psg_dda_n;
 const uint8_t *io_psg(void) { return psg_m; }
 unsigned long io_psg_dda(void) { return psg_dda_n; }   /* (for the model's trace only: bytes written in DDA mode with the channel on) */
@@ -407,6 +442,7 @@ int io_write(Hw *io, unsigned off, uint8_t v)
         return 1;
     case 0x1800:
         if (io->exact_runs) { adpcm_dma(io); adpcm_irq(io); }
+        if (off & 8) CDL_PUT((off & 15) << 8 | v);
         if ((off & 0x1E00) == 0x1A00) { note(io, "Arcade Card write"); return 1; }
         switch (off & 0xF) {
         case 0x0:                                                           /* SEL: the drive is selected */
@@ -426,19 +462,22 @@ int io_write(Hw *io, unsigned off, uint8_t v)
             io->port[4] = v; return 1;
         case 0x7: if (v & 0x80) io->bram_on = 1; return 1;
         case 0x8: case 0x9:
+            AD_LOG_W(off, v);
             if (io->last_cmd & 0x80) return 1;
             io->addr = (off & 1) ? (uint16_t)((io->addr & 0x00FF) | v << 8) : (uint16_t)((io->addr & 0xFF00) | v);
             if (io->last_cmd & 0x10) io->length = io->addr;
             return 1;
-        case 0xA: io->write_pending = 3 * 11; io->wp_value = v; return 1;
-        case 0xB: io->port[0xB] = v; return 1;
+        case 0xA: AD_LOG_W(off, v); io->write_pending = 3 * 11; io->wp_value = v; AD_LOG_CPU(io); return 1;
+        case 0xB: AD_LOG_W(off, v); io->port[0xB] = v; return 1;
         case 0xD:
+            AD_LOG_W(off, v);
             if (v & 0x80) {                                                 /* ADPCM reset */
                 io->addr = io->read_addr = io->write_addr = io->length = 0; io->last_cmd = 0;
                 io->playing = io->half = io->end = 0; io->nibble = 0;
                 adpcm_irq(io); return 1;
             }
             if (io->playing && !(v & 0x20)) io->playing = 0;
+            if (!io->playing && (v & 0x20)) AD_LOG_PLAY(io, v);
             if (!io->playing && (v & 0x20)) {                               /* play: the clock restarts */
                 io->bigdiv = io->bigdivacc * (16 - io->freq);
                 io->playing = 1; io->half = 0; io->nibble = 0;
@@ -449,8 +488,9 @@ int io_write(Hw *io, unsigned off, uint8_t v)
             io->last_cmd = v;
             adpcm_irq(io);
             return 1;
-        case 0xE: io->freq = v & 0xF; return 1;
+        case 0xE: AD_LOG_W(off, v); io->freq = v & 0xF; return 1;
         case 0xF:
+            AD_LOG_W(off, v);
             io->fade_cmd = v;
             if (!(v & 8)) { io->fade_vol = 65536; io->fade_ctr = 0; io->fade_count = 0; io->fade_on = 0; }
             else { io->fade_count = 3 * ((v & 4) ? 273 : 655); if (!io->fade_on) io->fade_ctr = (int32_t)io->fade_count; io->fade_on = 1; }

@@ -102,3 +102,6 @@ int io_cd_bytes(Hw *io, unsigned n, int32_t per, uint8_t *out);
 int io_ad_poll(Hw *io, int m, int32_t left, int32_t *used, unsigned *reads);   /* docs/76 (rt_adstep) */
 int scsi_quiet(const Hw *io);                       /* no drive, its bus free and not selected, or waiting for the CPU */
 void io_stuff_subchannels(Hw *io, unsigned n);      /* n sub-channel bytes at once (CD-DA run in one go) */
+#ifndef __sh__
+const uint16_t *io_cdlog(void); unsigned io_cdlog_wp(void); void io_cdlog_put(unsigned w);   /* docs/191: the CD unit's log */
+#endif

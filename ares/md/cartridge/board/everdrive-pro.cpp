@@ -249,7 +249,7 @@ struct EverDrivePro : Interface {
       if(off & 0x10) {   //(DraculaX docs/125, step 22: the console diagnostic's words - the model has no PC or edge count: 0)
         u32 k = off >> 1 & 7;
         value = k == 4 ? (n16)(dx.on ? dxm_frame() : 0) : k == 5 ? (n16)want : k == 6 ? (n16)((dx.armed ? 0x8000 : 0) | (dx.on ? 0x4000 : 0))
-              : k == 7 ? (n16)0xd158 : (n16)0;   //(the core's ID: step 58 keeps the PSG's registers, DraculaX docs/185)
+              : k == 7 ? (n16)0xd161 : (n16)0;   //(the core's ID: step 61 - the CD unit's log, SELECT given; DraculaX docs/191)
         return true;
       }
       if(off & 8) value = (n16)a;                                               //word 4: CD-DA's play's start, 15-0
@@ -295,6 +295,8 @@ struct EverDrivePro : Interface {
     else if(w < 0x600) value = dxm_colors()[w - 0x400] & 0x1ff;
     else if(w < 0x700) value = dxm_sat()[w - 0x600];
     else if(w < 0x705) value = dxm_snapshot()[w - 0x700];
+    else if(w == 0x705) value = dxm_cdlog_wp();                //(DraculaX docs/191: + 0x20e0a, the CD unit's log's write pointer)
+    else if(w >= 0x780 && w < 0x800) value = dxm_cdlog()[w & 0x7f];   //(+ 0x20f00-0x20fff: the log, 128 words)
     else if(w >= 0xa00) value = dxm_psg()[w & 0x1ff];   //(DraculaX docs/185: + 0x21400-0x217ff, the PSG's registers kept for the 32X)
     else if(w >= 0x800) value = dxm_lines()[(w & 0xff) * 2 + (w >> 8 & 1)] & (w & 0x100 ? 0x1ff : 0x3ff);   //(docs/105: X, then Y, a line)
     else value = 0;

@@ -36,6 +36,7 @@ int32_t dxm_drive_next(void);               /* the sector the drive reads next (
 uint32_t dxm_audio(void);                   /* docs/103: CD-DA - bit 31 playing, 25-24 the play's mode, 20-0 its start */
 const uint16_t *dxm_stamps(void);           /* each 64-word block of VRAM: the frame (frames ended) of its last write */
 const uint8_t *dxm_psg(void);               /* docs/185: the PSG's registers as the core keeps them (512 bytes), window 6 + 0x21400 + 2 * i */
+const uint16_t *dxm_cdlog(void); unsigned dxm_cdlog_wp(void);   /* docs/191: the CD unit's log (io_model.c), its write pointer */
 unsigned long dxm_psg_dda(void);            /* (the model's trace: bytes written in DDA mode) */
 const uint16_t *dxm_lines(void);            /* docs/105: at the last frame's end, for raster counts 0-262: (X, Y) - the
                                                background's offsets each line was drawn with (BXR, and Y's count) */

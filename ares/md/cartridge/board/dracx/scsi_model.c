@@ -266,6 +266,12 @@ static void run_read(Hw *io, int64_t run)
     fifo_write(d, b, 2048);
     sector_subq(io, (int32_t)d->sector_addr);
     io_cd_irq(io, 2);
+#if !defined(__sh__) && defined(AD_LOG)
+    { extern void ad_log_event(int kind, unsigned v); ad_log_event(0, (unsigned)d->sector_addr); }   /* docs/191: the drive takes a sector */
+#endif
+#ifndef __sh__
+    io_cdlog_put(0x8000u | (d->sector_addr > 0x7FFF ? 0x7FFFu : d->sector_addr));   /* docs/191: the drive takes a sector */
+#endif
     d->sector_addr++; d->sector_count--;
     if (d->phase != DATA_IN) change_phase(io, DATA_IN);
     if (d->sector_count) { d->data_transfer_done = 0; io->read_timer += one; }

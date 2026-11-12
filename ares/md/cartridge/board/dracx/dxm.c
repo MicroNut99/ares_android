@@ -102,17 +102,23 @@ void set_mpr(Cpu *c, int i, uint8_t v)
 {
     int w; c->MPR[i] = v; c->rp[i] = bank_ptr(v, &w); c->wok[i] = (uint8_t)w; c->dirty[i] = &bank_dirty[v];
 }
+#if !defined(__sh__) && defined(AD_LOG)
+long dxm_brlog[2];                                            /* docs/191: the backup RAM's reads and writes (dxm_pc BRAM_LOG) */
+#define DXM_BRLOG(w) (dxm_brlog[w]++)
+#else
+#define DXM_BRLOG(w) ((void)0)
+#endif
 uint8_t rd_slow(Cpu *c, uint16_t a)
 {
     const uint8_t b = c->MPR[a >> 13];
-    if (b == 0xF7) return bram[a & 0x7FF];
+    if (b == 0xF7) { DXM_BRLOG(0); return bram[a & 0x7FF]; }
     if (b != 0xFF) return 0xFF;
     return model_read(a);
 }
 void wr_slow(Cpu *c, uint16_t a, uint8_t v)
 {
     const uint8_t b = c->MPR[a >> 13];
-    if (b == 0xF7) { bram[a & 0x7FF] = v; return; }
+    if (b == 0xF7) { DXM_BRLOG(1); bram[a & 0x7FF] = v; return; }
     if (b != 0xFF) return;                                     /* ROM, unmapped */
     model_write(a, v);
 }
@@ -275,6 +281,7 @@ int32_t dxm_drive_next(void) { return hw.scsi.have ? (int32_t)hw.scsi.sector_add
 uint32_t dxm_audio(void) { return (hw.cdda_status == 1 ? 1u << 31 : 0) | (uint32_t)(hw.play_mode & 3) << 24 | (hw.read_sec_start & 0x1FFFFF); }
 const uint16_t *dxm_stamps(void) { return stamp; }
 const uint8_t *dxm_psg(void) { return io_psg(); }   /* docs/185 */
+const uint16_t *dxm_cdlog(void) { return io_cdlog(); } unsigned dxm_cdlog_wp(void) { return io_cdlog_wp(); }   /* docs/191 */
 unsigned long dxm_psg_dda(void) { return io_psg_dda(); }
 const uint16_t *dxm_snapshot(void) { return snap; }
 void dxm_on_frame(void (*fn)(void *, long), void *user) { frame_fn = fn; frame_user = user; }
