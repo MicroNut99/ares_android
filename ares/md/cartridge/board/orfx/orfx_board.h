@@ -18,6 +18,12 @@
 //              held until a right CHECK, are dropped; the game sends it again)
 //      slow=K  the core takes K times as long to draw (the game's timeout and fallback)
 //      hang=F  after F frames the core stays busy (the game must notice, post the core's state and draw itself)
+//      pic=N   a word of the picture, its colours or its line table arrives as another word (1 read in N): what the
+//              owner's console did with kits 10-11 (pixels blinking at the same places - the two SH2s share the cart
+//              bus and the core's answer followed the address pins; FINDINGS "Run 11: blinking pixels"). A V9 disc
+//              adds the picture up against the core's sum and reads it again (its status line: E<n>); a V8 disc
+//              shows the wrong pixels, as the console did
+//      st=N    a status word arrives wrong (1 read in N): the game reads those until two reads agree
 //
 //All the traps and faults of this build, in one table: README-CD32X.md, "Error traps and injected faults".
 //Traps (the code, what it means, fatal = what "stop" stops on):
@@ -54,7 +60,8 @@ struct OrFxTraps {
   static constexpr bool fatal[COUNT] = {true, false, false, true, true, true, true, true, false, true, true, false, true, false};
   u32 n[COUNT] = {};
   int mode = 1;                          //0 off, 1 log, 2 stop
-  u32 fDup = 0, fGap = 0, fPair = 0, fSlow = 1, fHang = 0;
+  u32 fDup = 0, fGap = 0, fPair = 0, fSlow = 1, fHang = 0, fPic = 0, fSt = 0;
+  u32 nPic = 0, nSt = 0;                 //(words given wrong on purpose)
   u32 rnd = 12345;
   auto oneIn(u32 k) -> bool { if(!k) return false; rnd = rnd * 1103515245u + 12345u; return (rnd >> 8) % k == 0; }
   bool summaryAt = false;
@@ -68,9 +75,11 @@ struct OrFxTraps {
         v = (u32)atoi(q + 1);
         if(!strncmp(p, "dup", 3)) fDup = v; else if(!strncmp(p, "gap", 3)) fGap = v; else if(!strncmp(p, "pair", 4)) fPair = v;
         else if(!strncmp(p, "slow", 4)) fSlow = v ? v : 1; else if(!strncmp(p, "hang", 4)) fHang = v;
+        else if(!strncmp(p, "pic", 3)) fPic = v; else if(!strncmp(p, "st", 2)) fSt = v;
         p = strchr(q, ','); if(!p) break; p++;
       }
-      fprintf(stderr, "[orfx] faults injected: dup=%u gap=%u pair=%u slow=%u hang=%u\n", fDup, fGap, fPair, fSlow, fHang);
+      fprintf(stderr, "[orfx] faults injected: dup=%u gap=%u pair=%u slow=%u hang=%u pic=%u st=%u\n", fDup, fGap, fPair, fSlow, fHang, fPic, fSt);
+      if(fPic || fSt) { summaryAt = true; atexit(summary); }   //(their counts at the end, trap or no trap)
     }
   }
   static auto self() -> OrFxTraps& { static OrFxTraps t; return t; }
@@ -80,6 +89,7 @@ struct OrFxTraps {
     fprintf(stderr, "[orfx] traps at the end: %u", all);
     for(u32 i = 0; i < COUNT; i++) if(t.n[i]) fprintf(stderr, "  %s %u", names[i], t.n[i]);
     fprintf(stderr, "\n");
+    if(t.fPic || t.fSt) fprintf(stderr, "[orfx] words given wrong on purpose: picture/colours/line table %u, status %u\n", t.nPic, t.nSt);
   }
   auto trap(u32 code, u32 frame, u64 us, const char* fmt, ...) -> void {
     if(!summaryAt) { summaryAt = true; atexit(summary); }
@@ -136,18 +146,26 @@ struct OrFx {
     }
     if(local < ORFX_PIC_PAL + 0x200 && busy(us) && shown() == drawing)
       t.trap(OrFxTraps::READ_DRAWING, f->frames, us, "0x%06x of buffer %u, which the core is drawing", local, drawing);
+    if(local < ORFX_PIC_PAL + 0x200 || (local >= ORFX_PIC_LT && local < ORFX_PIC_LT + 0x200)) {
+      if(t.oneIn(t.fPic)) {              //(fault: the word of another address arrives - a picture word from anywhere)
+        u32 o = (t.rnd >> 4) % (ORFX_W * ORFX_H / 2) * 2;
+        v = (u16)(f->pic[shown()][o] << 8 | f->pic[shown()][o + 1]) ^ (u16)(t.rnd >> 9 & 0x0101);
+        t.nPic++;
+        return true;
+      }
+    }
     if(local < ORFX_PIC_PAL) {
       u32 o = local - ORFX_PIC_BASE;
       v = o + 1 < ORFX_W * ORFX_H ? (u16)(f->pic[shown()][o & ~1u] << 8 | f->pic[shown()][o | 1]) : 0;
       return true;
     }
     if(local < ORFX_PIC_PAL + 0x200) { v = f->slotpal[shown()][(local - ORFX_PIC_PAL) >> 1]; return true; }
-    if(local >= ORFX_PIC_LT && local < ORFX_PIC_LT + 0x200) { v = f->lt[shown()][(local - ORFX_PIC_LT) >> 1]; return true; }   //(a run-length picture's lines)
+    if(local >= ORFX_PIC_LT && local < ORFX_PIC_LT + 0x200) { v = f->lt[shown()][(local - ORFX_PIC_LT) >> 1]; return true; }   //(a run-length picture's lines; its sum)
     if(local >= ORFX_STATUS && local < ORFX_STATUS + 0x20) {
       switch((local - ORFX_STATUS) >> 1) {
       case 0: v = 0x4f52; break;
       case 1: v = 0x4658; break;
-      case 2: v = (busy(us) ? 1 : 0) | 4 | 8 | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures)
+      case 2: v = (busy(us) ? 1 : 0) | 4 | 8 | 0x20 | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures; bit 5: kit 12 - the picture's sum)
       case 3: v = f->frames; break;
       case 4: v = lastTime20; break;
       case 5: v = f->slots[shown()]; break;
@@ -159,6 +177,7 @@ struct OrFx {
       case 13: v = f->n_taken; break;
       default: v = 0; break;
       }
+      if(t.oneIn(t.fSt)) { v ^= (u16)(1u << (t.rnd >> 10 & 15)); t.nSt++; }   //(fault: a status word with a bit wrong)
       return true;
     }
     v = 0;

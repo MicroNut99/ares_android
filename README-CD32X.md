@@ -131,7 +131,7 @@ a run with no trap and with the faults handled is the least to ask before a cons
 | RUNAWAY | orfx | a sprite line reading over 1024 words (garbage sprite data: seconds of drawing) | yes |
 | SLOTS | orfx | more than 253 colours in a frame | no |
 | ROM1_READ | everdrive-pro.cpp, orfx | the console read banks 16-30 while the core is on (the core's PSRAM: on the console the answer is the core's bus) | yes |
-| `ARES_ORFX_FAULT=dup=N,gap=N,pair=N,slow=K,hang=F` | orfx | inject: a word in N read twice / lost / two in a row lost (A17 then looks right: only the CHECK's count catches it); the core K times slower; the core hangs after F frames | |
+| `ARES_ORFX_FAULT=dup=N,gap=N,pair=N,slow=K,hang=F,pic=N,st=N` | orfx | inject: a word in N read twice / lost / two in a row lost (A17 then looks right: only the CHECK's count catches it); the core K times slower; the core hangs after F frames; `pic`: 1 read in N of the picture, its colours or its line table arrives as another word (the console's blinking pixels, OutRun run 11: the V9 disc counts them - `E<n>/<m>` - and reads the picture again); `st`: a status word with a bit wrong (the game reads those until two reads agree). The words given wrong are counted at the end | |
 | `ARES_EDP_USB=period=P,len=L,at=A,chip=C` | everdrive-pro.cpp (any model) | inject a USB read of the cart's memory (edlink memrd): every P ms, L bytes from MCU address A on PSRAM chip C (0: banks 0-15, 1: banks 16-31), ~1 byte a us; a console read of that chip meanwhile gets the word at the MCU's address, as krikzz's mem_ctrl does. `[edp usb]` lines, a count at the end | |
 | `ARES_32X_TRAP=1` | md/m32x (`m32xTrap`) | an SH2 access to the VDP registers, frame buffer or palette while FM = 0, a 68000 one while FM = 1 (the console makes the SH2 wait there; ares let it through) | |
 | chip 1 is the engine's | everdrive-pro.cpp (dracx, gotx) | a console read of banks 16-30 once DraculaX's engine is on | |
@@ -144,6 +144,12 @@ WE is on (OutRun CD32X kit 9: stray tiles in tile RAM and specks in the picture,
 in the core's Verilator bench (CannonballCD32X `fpga/orfx/sim/tb_orfx.cpp`, "TRAP SRAM"); a core is not ready for
 the console until its bench has the memories' own rules as traps and counts none. The whole report:
 [README-FPGA-FINDINGS.md](README-FPGA-FINDINGS.md) section 7.
+**And the bus between two readers.** ares gives every read the right word. On the console both SH2s read the cart
+over one bus, and a core whose answer follows the address pins loses it the moment the address moves on to the
+other SH2's read - OutRun CD32X run 11: single words of the picture wrong for a frame, in fixed places. The trap
+is the bench's again ("TRAP HOLD": the address moves on 40-100 ns before the data is taken; the answer must not
+change), the cure a registered answer held 80 ns, and the game's own check of what it read (section 7, item 7).
+`ARES_ORFX_FAULT=pic=N` gives wrong words on purpose to exercise that check.
 
 **The trap ares cannot have, and what replaces it:** the USB side taking the cart's memory during a run. It froze
 DraculaX CD32X v14-v25 (MicroNut99/DraculaX_32X docs/177-178): the MCU's address and OE replace the console's on the

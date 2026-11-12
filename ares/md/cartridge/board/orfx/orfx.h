@@ -32,10 +32,21 @@ extern "C" {
                                        unit not failed; the next word's T is 1); sent before every frame */
 #define ORFX_PIC_BASE    0x3C0000   /* the picture shown: 320 x 224 bytes (palette slots), then the slots' colours */
 #define ORFX_PIC_PAL     0x3D2000   /* 256 words: the 32X colour (BGR555) of each slot, for the picture shown */
-#define ORFX_PIC_LT      0x3D2400   /* 226 words, for the picture shown: words 0-223 each line's first word in a
+#define ORFX_PIC_LT      0x3D2400   /* 228 words, for the picture shown: words 0-223 each line's first word in a
                                        run-length picture (from PIC_BASE, in words), 224 its words in all, 225 its
                                        flags: bit 0 run-length (else 320 x 224 bytes), bit 1 it did not fit in
-                                       ORFX_RLE_MAX words (not to be shown) */
+                                       ORFX_RLE_MAX words (not to be shown), bit 2 (kit 12) words 226-227 are the
+                                       picture's sum: its words (224's count; 35,840 when not run-length) two at a
+                                       time as 32-bit numbers, the first the high half (an odd last word: the high
+                                       half alone), added up modulo 2^32 - 226 the high half, 227 the low. The
+                                       slave adds up what it read: a wrong word on the way is counted and the picture
+                                       read again, not shown */
+#define ORFX_LT_WORDS    224
+#define ORFX_LT_FLAGS    225
+#define ORFX_LT_SUM      226
+#define ORFX_LTF_RLE     1
+#define ORFX_LTF_OVF     2
+#define ORFX_LTF_SUM     4
 #define ORFX_RLE_MAX     35840      /* (the picture's room; 3,600 frames of the game: 11,300 on average, 22,008 the most) */
 #define ORFX_STATUS      0x3D3000   /* words: 0 'OR', 1 'FX', 2 status, 3 frames drawn, 4 the last frame's time
                                        (20 us units), 5 slots used, 6 colours without a slot, 7 CHECKs done;
@@ -91,7 +102,8 @@ enum {                              /* ORFX_M_REG */
 };
 enum { ORFX_W = 320, ORFX_H = 224, ORFX_SLOT_FIRST = 1, ORFX_SLOT_LAST = 253 };
 /* status (word 2): bit 0 busy (drawing, loading or words queued), bit 2 the key taken, bit 3 the core can draw
-   run-length pictures, bit 4 the buffer shown,
+   run-length pictures, bit 4 the buffer shown, bit 5 kit 12 or later (every answer from a register that changes
+   100 ns or more after the address; the picture's sum in the line table),
    bit 8 the queue overflowed, bit 9 the unit since the last SYNC failed, bit 10 it had a gap (a word lost: the
    core ignored the rest, so nothing wrong was written) */
 

@@ -405,7 +405,20 @@ void orfx_draw(orfx_t* f, int buf, uint16_t* line13)
         f->lt[buf][225] = (uint16_t)(1 | ovf << 1);
         for (uint32_t i = 0; i < n; i++) { f->pic[buf][2 * i] = (uint8_t)(w[i] >> 8); f->pic[buf][2 * i + 1] = (uint8_t)w[i]; }
     }
-    else f->lt[buf][224] = ORFX_RLE_MAX;        /* (bytes / 2; flags 0) */
+    else f->lt[buf][224] = ORFX_RLE_MAX;        /* (bytes / 2; not run-length) */
+    {   /* the picture's sum (kit 12): its words two at a time as 32-bit numbers, the first the high half (an odd last
+           word: the high half alone), added up modulo 2^32 - entries 226 (high) and 227; flags bit 2: it is there */
+        const uint32_t nw = f->lt[buf][224];
+        uint32_t sum = 0;
+        for (uint32_t i = 0; i < nw; i++)
+        {
+            const uint32_t v = (uint32_t)f->pic[buf][2 * i] << 8 | f->pic[buf][2 * i + 1];
+            sum += (i & 1) ? v : v << 16;
+        }
+        f->lt[buf][225] |= 4;
+        f->lt[buf][226] = (uint16_t)(sum >> 16);
+        f->lt[buf][227] = (uint16_t)sum;
+    }
     f->frames++;
 }
 
