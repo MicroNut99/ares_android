@@ -63,7 +63,7 @@ auto M32X::readInternal(n1 upper, n1 lower, n32 address, n16 data) -> n16 {
   }
 
   if(address >= 0x0400'0000 && address <= 0x05ff'ffff) {
-    if(!vdp.framebufferAccess) return data;
+    if(!vdp.framebufferAccess) { m32xTrap(3, address, 0); return data; }
     if(vdp.framebufferEngaged()) { debug(unusual, "[32X FB] SH2 read while FEN==1"); return data; } // wait instead?
     stats.fbRead++;
     busCharge(timing.fbRead);
@@ -91,7 +91,7 @@ auto M32X::writeInternal(n1 upper, n1 lower, n32 address, n16 data) -> void {
     address &= 0x0403'ffff;
 
     if(address >= 0x0400'0000 && address <= 0x0401'ffff) {
-      if(!vdp.framebufferAccess) return;
+      if(!vdp.framebufferAccess) { m32xTrap(4, address, data); return; }
       if(vdp.framebufferEngaged()) { debug(unusual, "[32X FB] SH2 write while FEN==1"); return; } // wait instead?
       if(!data && (!upper || !lower)) return;  //8-bit 0x00 writes do not go through
       stats.fbWrite++;
@@ -102,7 +102,7 @@ auto M32X::writeInternal(n1 upper, n1 lower, n32 address, n16 data) -> void {
     }
 
     if(address >= 0x0402'0000 && address <= 0x0403'ffff) {
-      if(!vdp.framebufferAccess) return;
+      if(!vdp.framebufferAccess) { m32xTrap(4, address, data); return; }
       if(vdp.framebufferEngaged()) { debug(unusual, "[32X FB] SH2 overwrite while FEN==1"); return; } // wait instead?
       stats.fbWrite++;
       busCharge(fbWriteCost(), timing.holdWrite);

@@ -191,6 +191,7 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
       io.hintVblank = data.bit(7);
     }
     if(upper) {
+      if(vdp.framebufferAccess != data.bit(15) && getenv("ARES_32X_TRAP_FM")) m32xTrap(7, address, data);
       vdp.framebufferAccess = data.bit(15);
     }
   }
@@ -300,7 +301,7 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
 
   //bitmap mode
   if(address == 0x4100) {
-    if (!vdp.framebufferAccess) return;
+    if(!vdp.framebufferAccess) { m32xTrap(5, address, data); return; }
     if(lower) {
       vdp.mode     = data.bit(0,1);
       vdp.lines    = data.bit(6);
@@ -310,7 +311,7 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
 
   //packed pixel control
   if(address == 0x4102) {
-    if (!vdp.framebufferAccess) return;
+    if(!vdp.framebufferAccess) { m32xTrap(5, address, data); return; }
     if(lower) {
       vdp.dotshift = data.bit(0);
     }
@@ -318,7 +319,7 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
 
   //autofill length
   if(address == 0x4104) {
-    if (!vdp.framebufferAccess) return;
+    if(!vdp.framebufferAccess) { m32xTrap(5, address, data); return; }
     if(lower) {
       vdp.autofillLength = data.byte(0);
     }
@@ -326,14 +327,14 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
 
   //autofill address
   if(address == 0x4106) {
-    if (!vdp.framebufferAccess) return;
+    if(!vdp.framebufferAccess) { m32xTrap(5, address, data); return; }
     if(upper) vdp.autofillAddress.byte(1) = data.byte(1);
     if(lower) vdp.autofillAddress.byte(0) = data.byte(0);
   }
 
   //autofill data
   if(address == 0x4108) {
-    if (!vdp.framebufferAccess) return;
+    if(!vdp.framebufferAccess) { m32xTrap(5, address, data); return; }
     if(upper) vdp.autofillData.byte(1) = data.byte(1);
     if(lower) vdp.autofillData.byte(0) = data.byte(0);
     vdp.fill();
@@ -341,7 +342,7 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
 
   //frame buffer control
   if(address == 0x410a) {
-    if (!vdp.framebufferAccess) return;
+    if(!vdp.framebufferAccess) { m32xTrap(5, address, data); return; }
     if(lower) {
       vdp.selectFramebuffer(data.bit(0));
     }
@@ -349,7 +350,7 @@ auto M32X::writeInternalIO(n1 upper, n1 lower, n29 address, n16 data) -> void {
 
   //palette
   if(address >= 0x4200 && address <= 0x43ff) {
-    if(!vdp.framebufferAccess) return;
+    if(!vdp.framebufferAccess) { m32xTrap(5, address, data); return; }
     while(vdp.paletteEngaged()) {
       if(shm.active()) { shm.internalStep(1); shm.syncAll(true); }
       if(shs.active()) { shs.internalStep(1); shs.syncAll(true); }
