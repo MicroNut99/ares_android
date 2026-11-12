@@ -80,6 +80,16 @@ extern "C" {
                                        that has not failed. Wrong (or a gap): the unit fails - status bit 9 until the
                                        next SYNC, the wrong-unit count +1, the GO not run. The game reads the status
                                        after each frame (orfx_verdict, port/orfx/orfx_send.cpp) and sends again */
+#define ORFX_OP_SUM      0x7000     /* (kit 13, status bit 6) 0x7000 | k: the core adds up a memory nothing else checks,
+                                       as it reads it itself - k 0-15 a page of tile RAM (2,048 words, 0.2 ms), k 16
+                                       the graphics in the second PSRAM (688,128 words, 110 ms). Like GO: only straight
+                                       after a right CHECK; the core is busy meanwhile. The sum (a picture's kind: two
+                                       words a 32-bit number, the first the high half, modulo 2^32) is status words
+                                       16-17 (ORFX_STATUS + 0x20, + 0x22); word 18 (+ 0x24): k in bits 15-11, the
+                                       sums made so far in bits 10-0 */
+#define ORFX_SUM_GFX     16
+#define ORFX_GFX_WORDS   0xA8000    /* 0x150000 bytes: sprites, tiles, road */
+#define ORFX_NO_SUM      0xFFFFFFFFu /* (the launcher's mark: no sum of the graphics there) */
 #define ORFX_OP_NOP      0x0000
 #define ORFX_PEND        256        /* a unit's writes (DATA words) at most: they wait in the core until its right
                                        CHECK, so a unit out of step writes nothing; more: the unit fails */
@@ -101,9 +111,9 @@ enum {                              /* ORFX_M_REG */
     ORFX_R_COUNT   = 8
 };
 enum { ORFX_W = 320, ORFX_H = 224, ORFX_SLOT_FIRST = 1, ORFX_SLOT_LAST = 253 };
-/* status (word 2): bit 0 busy (drawing, loading or words queued), bit 2 the key taken, bit 3 the core can draw
-   run-length pictures, bit 4 the buffer shown, bit 5 kit 12 or later (every answer from a register that changes
-   100 ns or more after the address; the picture's sum in the line table),
+/* status (word 2): bit 0 busy (drawing, adding up, loading or words queued), bit 2 the key taken, bit 3 the core
+   can draw run-length pictures, bit 4 the buffer shown, bit 5 kit 12 or later (every answer from a register that
+   changes 100 ns or more after the address; the picture's sum in the line table), bit 6 kit 13 or later (SUM),
    bit 8 the queue overflowed, bit 9 the unit since the last SYNC failed, bit 10 it had a gap (a word lost: the
    core ignored the rest, so nothing wrong was written) */
 
@@ -124,6 +134,8 @@ typedef struct {
     uint16_t sum, cnt, n_bad, n_chk, n_dup, n_taken;
     int q_tog; uint16_t q_last, q_key;      /* the bus: the last address taken (A16-A1), its A17; the scramble */
     int shown, load_req;                    /* SHOW's buffer; a LOAD was asked (the bus side does it) */
+    int sum_req, sum_k; uint32_t sum_q; uint16_t n_sum;     /* SUM: one was asked (the bus side: its time), which,
+                                               the sum, how many so far */
     uint16_t* line13;                       /* GO draws its 13-bit pixels here too (the PC bench), or 0 */
     int n_pend;                             /* the unit's writes, waiting for its right CHECK (ORFX_PEND at most) */
     int8_t pend_m[256]; uint16_t pend_a[256], pend_d[256];
@@ -140,6 +152,7 @@ int      orfx_cmd(orfx_t* f, int a17, uint16_t a);            /* a read of the c
 void     orfx_word(orfx_t* f, uint16_t w);                    /* one word of the stream, in step */
 void     orfx_sync(orfx_t* f);                                /* a read of ORFX_SYNC */
 #define  ORFX_SYNC_WORD 0x10000u   /* the sender's put() gets this for a SYNC (its words are 32-bit for that) */
+uint32_t orfx_sum(const orfx_t* f, int k);                    /* SUM k as the core makes it */
 void     orfx_draw(orfx_t* f, int buf, uint16_t* line13);     /* the frame (buf: 0/1, + 2 run-length; line13: the
                                                                  13-bit pixels, or 0) */
 uint32_t orfx_cycles(const orfx_t* f);                        /* the RTL's clocks for the last frame (estimate) */

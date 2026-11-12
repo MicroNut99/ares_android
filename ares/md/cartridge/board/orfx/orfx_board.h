@@ -24,6 +24,14 @@
 //              adds the picture up against the core's sum and reads it again (its status line: E<n>); a V8 disc
 //              shows the wrong pixels, as the console did
 //      st=N    a status word arrives wrong (1 read in N): the game reads those until two reads agree
+//      tile=N  every N frames one bit of the core's tile RAM turns over (its SRAM, which only the core reads): a V11
+//              disc asks a kit 13 core for the sum of a page every 8th picture, finds the page and sends it again
+//              (its status row: K becomes !, then GFX .. TILE <n> P<page> every other second)
+//      gfx=1   one bit of the core's copy of the graphics is wrong from the start (its PSRAM): a V11 disc compares
+//              the core's sum with its own before the first picture (GFX <the core's>/<the game's>)
+//
+//  ARES_ORFX_KIT   = 12: the core as kit 12 had it - no SUM (status bit 6 clear, words 16-18 zero; a SUM word is a
+//                    BAD_OP trap: a game must not send one to a core that does not say it can)
 //
 //All the traps and faults of this build, in one table: README-CD32X.md, "Error traps and injected faults".
 //Traps (the code, what it means, fatal = what "stop" stops on):
@@ -60,14 +68,17 @@ struct OrFxTraps {
   static constexpr bool fatal[COUNT] = {true, false, false, true, true, true, true, true, false, true, true, false, true, false};
   u32 n[COUNT] = {};
   int mode = 1;                          //0 off, 1 log, 2 stop
-  u32 fDup = 0, fGap = 0, fPair = 0, fSlow = 1, fHang = 0, fPic = 0, fSt = 0;
-  u32 nPic = 0, nSt = 0;                 //(words given wrong on purpose)
+  u32 fDup = 0, fGap = 0, fPair = 0, fSlow = 1, fHang = 0, fPic = 0, fSt = 0, fTile = 0, fGfx = 0;
+  u32 nPic = 0, nSt = 0, nTile = 0;      //(words given wrong on purpose; bits of tile RAM turned over)
+  u32 nSum = 0;                          //(sums the game asked for)
+  u32 kit = 13;                          //(ARES_ORFX_KIT)
   u32 rnd = 12345;
   auto oneIn(u32 k) -> bool { if(!k) return false; rnd = rnd * 1103515245u + 12345u; return (rnd >> 8) % k == 0; }
   bool summaryAt = false;
 
   OrFxTraps() {
     if(auto e = getenv("ARES_ORFX_TRAP")) mode = !strcmp(e, "off") ? 0 : !strcmp(e, "stop") ? 2 : 1;
+    if(auto e = getenv("ARES_ORFX_KIT")) { kit = (u32)atoi(e); fprintf(stderr, "[orfx] the core as kit %u\n", kit); }
     if(auto e = getenv("ARES_ORFX_FAULT")) {
       const char* p = e;
       while(*p) {
@@ -76,10 +87,11 @@ struct OrFxTraps {
         if(!strncmp(p, "dup", 3)) fDup = v; else if(!strncmp(p, "gap", 3)) fGap = v; else if(!strncmp(p, "pair", 4)) fPair = v;
         else if(!strncmp(p, "slow", 4)) fSlow = v ? v : 1; else if(!strncmp(p, "hang", 4)) fHang = v;
         else if(!strncmp(p, "pic", 3)) fPic = v; else if(!strncmp(p, "st", 2)) fSt = v;
+        else if(!strncmp(p, "tile", 4)) fTile = v; else if(!strncmp(p, "gfx", 3)) fGfx = v;
         p = strchr(q, ','); if(!p) break; p++;
       }
-      fprintf(stderr, "[orfx] faults injected: dup=%u gap=%u pair=%u slow=%u hang=%u pic=%u st=%u\n", fDup, fGap, fPair, fSlow, fHang, fPic, fSt);
-      if(fPic || fSt) { summaryAt = true; atexit(summary); }   //(their counts at the end, trap or no trap)
+      fprintf(stderr, "[orfx] faults injected: dup=%u gap=%u pair=%u slow=%u hang=%u pic=%u st=%u tile=%u gfx=%u\n", fDup, fGap, fPair, fSlow, fHang, fPic, fSt, fTile, fGfx);
+      if(fPic || fSt || fTile || fGfx) { summaryAt = true; atexit(summary); }   //(their counts at the end, trap or no trap)
     }
   }
   static auto self() -> OrFxTraps& { static OrFxTraps t; return t; }
@@ -90,6 +102,8 @@ struct OrFxTraps {
     for(u32 i = 0; i < COUNT; i++) if(t.n[i]) fprintf(stderr, "  %s %u", names[i], t.n[i]);
     fprintf(stderr, "\n");
     if(t.fPic || t.fSt) fprintf(stderr, "[orfx] words given wrong on purpose: picture/colours/line table %u, status %u\n", t.nPic, t.nSt);
+    if(t.fTile || t.fGfx) fprintf(stderr, "[orfx] bits turned over in the core's own memories: tile RAM %u, the graphics %u\n", t.nTile, t.fGfx ? 1u : 0u);
+    if(t.nSum) fprintf(stderr, "[orfx] sums the game asked the core for (SUM): %u\n", t.nSum);
   }
   auto trap(u32 code, u32 frame, u64 us, const char* fmt, ...) -> void {
     if(!summaryAt) { summaryAt = true; atexit(summary); }
@@ -161,11 +175,14 @@ struct OrFx {
     }
     if(local < ORFX_PIC_PAL + 0x200) { v = f->slotpal[shown()][(local - ORFX_PIC_PAL) >> 1]; return true; }
     if(local >= ORFX_PIC_LT && local < ORFX_PIC_LT + 0x200) { v = f->lt[shown()][(local - ORFX_PIC_LT) >> 1]; return true; }   //(a run-length picture's lines; its sum)
-    if(local >= ORFX_STATUS && local < ORFX_STATUS + 0x20) {
+    if(local >= ORFX_STATUS && local < ORFX_STATUS + 0x30) {
       switch((local - ORFX_STATUS) >> 1) {
+      case 16: v = t.kit >= 13 ? f->sum_q >> 16 : 0; break;      //(kit 13: SUM - the sum, which, how many so far)
+      case 17: v = t.kit >= 13 ? (u16)f->sum_q : 0; break;
+      case 18: v = t.kit >= 13 ? (u16)(f->sum_k << 11 | f->n_sum) : 0; break;
       case 0: v = 0x4f52; break;
       case 1: v = 0x4658; break;
-      case 2: v = (busy(us) ? 1 : 0) | 4 | 8 | 0x20 | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures; bit 5: kit 12 - the picture's sum)
+      case 2: v = (busy(us) ? 1 : 0) | 4 | 8 | 0x20 | (t.kit >= 13 ? 0x40 : 0) | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures; bit 5: kit 12 - the picture's sum; bit 6: kit 13 - SUM)
       case 3: v = f->frames; break;
       case 4: v = lastTime20; break;
       case 5: v = f->slots[shown()]; break;
@@ -210,7 +227,8 @@ struct OrFx {
       u16 w = a ^ (u16)(f->q_key + ORFX_KEY_STEP);
       if(!f->data_left && f->sel_m >= -1) {
         u32 op = w >> 12;
-        if(op > 6) t.trap(OrFxTraps::BAD_OP, f->frames, us, "command %04x", w);
+        if(op > 7 || (op == 7 && t.kit < 13)) t.trap(OrFxTraps::BAD_OP, f->frames, us, "command %04x", w);
+        if(op == 7 && (w & 0xfff) > ORFX_SUM_GFX) t.trap(OrFxTraps::BAD_OP, f->frames, us, "SUM of memory %u", w & 0xfff);
         if(op == 1 && (w & 7) > 5) t.trap(OrFxTraps::BAD_OP, f->frames, us, "SELECT of memory %u", w & 7);
         if(op == 2) {
           static const u32 size[6] = {0x8000, 0x800, 0x400, 0x800, 0x1000, ORFX_R_COUNT};
@@ -238,7 +256,13 @@ struct OrFx {
       grab(gt, ORFX_GFX_TILES, 0x40000);
       grab(gr, ORFX_GFX_ROAD, 0x10000);
       f->gfx_sprites = gs.data(); f->gfx_tiles = gt.data(); f->gfx_road = gr.data();
+      if(t.fGfx) gs[0x4321] ^= 0x10;     //(fault: one bit of the core's graphics)
       busyUntil = us + 20000;            //(the RTL copies the tiles into its SRAM: about 20 ms)
+    }
+    if(f->sum_req) {                     //a SUM: the core adds up as fast as it reads (the RTL: 10 clocks a word of
+      f->sum_req = 0;                    //the PSRAM, 7 of the SRAM with the console's reads between)
+      t.nSum++;
+      busyUntil = us + ((f->sum_k & 16) ? 137600 : 300) * t.fSlow;
     }
     if(f->frames != fr0) {               //a GO drew a frame
       u32 c = orfx_cycles(f) * t.fSlow;
@@ -249,6 +273,13 @@ struct OrFx {
       if(f->n.spr_line_max > 1024) t.trap(OrFxTraps::RUNAWAY, f->frames, us, "a sprite line read %u words", f->n.spr_line_max);
       if(f->overflow[drawing]) t.trap(OrFxTraps::SLOTS, f->frames, us, "%d pixels without a slot", f->overflow[drawing]);
       if(t.fHang && f->frames >= t.fHang && !hung) { hung = true; fprintf(stderr, "[orfx] fault: the core hangs at frame %u\n", f->frames); }
+      if(t.fTile && f->frames % t.fTile == 0) {   //(fault: a bit of tile RAM, after this frame was drawn)
+        t.rnd = t.rnd * 1103515245u + 12345u;
+        u32 a = (t.rnd >> 8) & 0x7fff;
+        f->tile[a] ^= (u16)(1u << (t.rnd >> 24 & 15));
+        t.nTile++;
+        if(t.nTile <= 20) fprintf(stderr, "[orfx] fault: tile RAM word 0x%04x (page %u) after frame %u\n", a, a >> 11, f->frames);
+      }
     }
   }
 };

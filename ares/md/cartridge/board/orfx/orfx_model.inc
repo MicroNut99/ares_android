@@ -13,6 +13,32 @@
 static uint32_t be32(const uint8_t* p) { return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3]; }
 static uint16_t be16(const uint8_t* p) { return (uint16_t)(p[0] << 8 | p[1]); }
 
+/* SUM: a memory as the core reads it, its words two at a time as 32-bit numbers (the first the high half), added up
+   modulo 2^32. k 0-15: a page of tile RAM (2,048 words); k 16: the graphics (sprites, tiles, road: 688,128 words) */
+uint32_t orfx_sum(const orfx_t* f, int k)
+{
+    uint32_t sum = 0;
+    if (k & 16)
+    {
+        const uint8_t* part[3] = { f->gfx_sprites, f->gfx_tiles, f->gfx_road };
+        const uint32_t len[3] = { 0x100000, 0x40000, 0x10000 };
+        uint32_t i = 0;
+        for (int p = 0; p < 3; p++)
+            for (uint32_t b = 0; b < len[p]; b += 2, i++)
+            {
+                const uint32_t v = (uint32_t)part[p][b] << 8 | part[p][b + 1];
+                sum += (i & 1) ? v : v << 16;
+            }
+    }
+    else
+        for (uint32_t i = 0; i < 0x800; i++)
+        {
+            const uint32_t v = f->tile[(uint32_t)(k & 15) * 0x800 + i];
+            sum += (i & 1) ? v : v << 16;
+        }
+    return sum;
+}
+
 void orfx_init(orfx_t* f, const uint8_t* sprites, const uint8_t* tiles, const uint8_t* road)
 {
     memset(f, 0, sizeof(*f));
@@ -135,6 +161,17 @@ void orfx_word(orfx_t* f, uint16_t w)
         case ORFX_OP_DATA:   f->data_left = w & 0xfff; break;
         case ORFX_OP_GO:                            /* only straight after a right CHECK */
             if (f->go_ok) orfx_draw(f, w & 3, f->line13);
+            else fail(f);
+            f->go_ok = 0;
+            break;
+        case ORFX_OP_SUM:                           /* (kit 13) the same rule */
+            if (f->go_ok)
+            {
+                f->sum_k = w & 0x1f;
+                f->sum_q = orfx_sum(f, f->sum_k);
+                f->n_sum = (f->n_sum + 1) & 0x7ff;
+                f->sum_req = 1;                     /* (the bus side: the time it takes) */
+            }
             else fail(f);
             f->go_ok = 0;
             break;
