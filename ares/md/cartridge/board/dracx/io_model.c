@@ -362,10 +362,30 @@ int io_read(Hw *io, unsigned off, int in_block_move, uint8_t *v)
     return 0;
 }
 
+/* docs/185: the PSG's registers as the cart's core keeps them for the 32X (dx_engine.sv psg_m; Mednafen's
+   pce_psg.cpp Write()): [ch * 8 + r] channel ch's register r (2 frequency low, 3 high, 4 control, 5 balance, 6 the
+   last byte written in DDA mode, 7 noise); [48] $0800, [49] $0801, [56] $0808, [57] $0809; [256 + ch * 32 + n] the
+   waveforms. Not part of Hw: the engine never reads it. */
+static uint8_t psg_m[512]; static unsigned psg_sel, psg_ctl[6], psg_ix[6];
+const uint8_t *io_psg(void) { return psg_m; }
+static void psg_keep(unsigned r, uint8_t v)
+{
+    if (r > 9) return;
+    if (r == 0) { psg_sel = v & 7; psg_m[48] = v; return; }
+    if (r == 1 || r == 8 || r == 9) { psg_m[r == 1 ? 49 : 48 + r] = v; if (r == 9 && (v & 0x80)) psg_ix[1] = 0; return; }
+    if (psg_sel > 5) return;
+    if (r == 4) { if ((psg_ctl[psg_sel] & 0x40) && !(v & 0x40)) psg_ix[psg_sel] = 0; psg_ctl[psg_sel] = v; }
+    if (r == 6 && !(psg_ctl[psg_sel] & 0x40)) {
+        psg_m[256 + psg_sel * 32 + psg_ix[psg_sel]] = v;
+        if (!(psg_ctl[psg_sel] & 0xC0)) psg_ix[psg_sel] = (psg_ix[psg_sel] + 1) & 31;
+        return; }
+    psg_m[psg_sel * 8 + r] = v;
+}
+
 int io_write(Hw *io, unsigned off, uint8_t v)
 {
     switch (off & 0x1C00) {
-    case 0x0800: io->io_bus = v; return 1;                                  /* the PSG (sound: M4) */
+    case 0x0800: io->io_bus = v; psg_keep(off & 15, v); return 1;             /* the PSG: its registers kept (docs/185) */
     case 0x0C00: io->io_bus = v; note(io, "timer write"); return 1;
     case 0x1000: {
         io->io_bus = v;

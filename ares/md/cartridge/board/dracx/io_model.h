@@ -85,6 +85,7 @@ int io_irq2_at(const Hw *io, int64_t t);                /* was IRQ2 high at time
 /* an access to the hardware page at offset 0x800-0x1FFF; returns 1 if this model covers it */
 int io_read(Hw *io, unsigned off, int in_block_move, uint8_t *v);
 int io_write(Hw *io, unsigned off, uint8_t v);
+const uint8_t *io_psg(void);                 /* docs/185: the PSG's registers kept, 512 bytes */
 /* scsi_model.c */
 int scsi_start(Hw *io, const uint32_t *o, const uint8_t *fifo, const uint32_t *toc, const char *cue, int64_t t0, char *err, int errn);
 /* (docs/69) the same from the disc's table (m3_speedtest.py disc_table) instead of the cue sheet: no files - a data

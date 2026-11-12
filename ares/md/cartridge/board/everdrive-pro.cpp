@@ -168,7 +168,9 @@ struct EverDrivePro : Interface {
     if(!dx.on) return step(256);
     if(getenv("DRACX_TRACE")) {   //(a line about every second of the cart's thread: the machine's state)
       static u64 n; if(++n % 83'000 == 0) print("[dracx] machine frame ", dxm_frame(), " time ", (s64)dxm_now(), " waiting ", dxm_waiting(),
-        " drive next ", dxm_drive_next(), " spare ", dx.full ? (s32)dx.have : -1, " missed ", dxm_missed(), "\n");
+        " drive next ", dxm_drive_next(), " spare ", dx.full ? (s32)dx.have : -1, " missed ", dxm_missed(),
+        " psg ctl ", hex(dxm_psg()[4], 2L), " ", hex(dxm_psg()[12], 2L), " ", hex(dxm_psg()[20], 2L), " ", hex(dxm_psg()[28], 2L), " ", hex(dxm_psg()[36], 2L), " ", hex(dxm_psg()[44], 2L),
+        " f0 ", hex(dxm_psg()[3] << 8 | dxm_psg()[2], 3L), " bal ", hex(dxm_psg()[49], 2L), "\n");   //(DraculaX docs/185)
     }
     s64 t0 = dxm_now(), t = dxm_run_until(t0 + 256);
     step(dxm_waiting() || t <= t0 ? 256 : (u32)(t - t0));
@@ -247,7 +249,7 @@ struct EverDrivePro : Interface {
       if(off & 0x10) {   //(DraculaX docs/125, step 22: the console diagnostic's words - the model has no PC or edge count: 0)
         u32 k = off >> 1 & 7;
         value = k == 4 ? (n16)(dx.on ? dxm_frame() : 0) : k == 5 ? (n16)want : k == 6 ? (n16)((dx.armed ? 0x8000 : 0) | (dx.on ? 0x4000 : 0))
-              : k == 7 ? (n16)0xd122 : (n16)0;
+              : k == 7 ? (n16)0xd158 : (n16)0;   //(the core's ID: step 58 keeps the PSG's registers, DraculaX docs/185)
         return true;
       }
       if(off & 8) value = (n16)a;                                               //word 4: CD-DA's play's start, 15-0
@@ -293,6 +295,7 @@ struct EverDrivePro : Interface {
     else if(w < 0x600) value = dxm_colors()[w - 0x400] & 0x1ff;
     else if(w < 0x700) value = dxm_sat()[w - 0x600];
     else if(w < 0x705) value = dxm_snapshot()[w - 0x700];
+    else if(w >= 0xa00) value = dxm_psg()[w & 0x1ff];   //(DraculaX docs/185: + 0x21400-0x217ff, the PSG's registers kept for the 32X)
     else if(w >= 0x800) value = dxm_lines()[(w & 0xff) * 2 + (w >> 8 & 1)] & (w & 0x100 ? 0x1ff : 0x3ff);   //(docs/105: X, then Y, a line)
     else value = 0;
     return true;

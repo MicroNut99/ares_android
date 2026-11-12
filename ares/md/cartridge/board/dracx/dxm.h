@@ -35,6 +35,7 @@ long dxm_missed(void);                      /* sector reads the reader couldn't 
 int32_t dxm_drive_next(void);               /* the sector the drive reads next (the register window's want) */
 uint32_t dxm_audio(void);                   /* docs/103: CD-DA - bit 31 playing, 25-24 the play's mode, 20-0 its start */
 const uint16_t *dxm_stamps(void);           /* each 64-word block of VRAM: the frame (frames ended) of its last write */
+const uint8_t *dxm_psg(void);               /* docs/185: the PSG's registers as the core keeps them (512 bytes), window 6 + 0x21400 + 2 * i */
 const uint16_t *dxm_lines(void);            /* docs/105: at the last frame's end, for raster counts 0-262: (X, Y) - the
                                                background's offsets each line was drawn with (BXR, and Y's count) */
 const uint16_t *dxm_snapshot(void);         /* at the last frame's end: BXR, BYR, MWR, CR, that frame's number */          /* the pad from the next frame's start (libretro's mask, as io_set_buttons) */
