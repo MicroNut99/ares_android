@@ -5,6 +5,26 @@
 namespace ares::MegaDrive {
 
 M32X m32x;
+//console traps (DraculaX CD32X docs/175): the 32X drops an access to its frame buffer or its VDP registers made by the
+//CPU that does not hold FM, and says nothing. A program that loses a write that way runs on here and stops on the
+//console. ARES_32X_TRAP=1 prints each kind's first 12 and then every 500th; =2 prints all.
+static auto m32xTrap(u32 kind, u32 address, u32 data) -> void {
+  static int on = -1; static u32 count[8];
+  if(on < 0) { auto e = getenv("ARES_32X_TRAP"); on = e ? atoi(e) : 0; }
+  if(!on) return;
+  static const char* name[8] = {
+    "68000 reads the frame buffer, FM=1 (the SH2s hold it): open bus",
+    "68000 writes the frame buffer, FM=1: dropped",
+    "68000 writes a 32X VDP register, FM=1: dropped",
+    "SH2 reads the frame buffer, FM=0 (the 68000 holds it): open bus",
+    "SH2 writes the frame buffer, FM=0: dropped",
+    "SH2 writes a 32X VDP register, FM=0: dropped",
+    "68000 changes FM",
+    "SH2 changes FM",
+  };
+  u32 n = ++count[kind & 7];
+  if(on >= 2 || n <= 12 || n % 500 == 0) fprintf(stderr, "[32X TRAP] #%u %s  address %06x data %04x\n", n, name[kind & 7], address, data & 0xffff);
+}
 #include "sh7604.cpp"
 #include "bus-internal.cpp"
 #include "bus-external.cpp"

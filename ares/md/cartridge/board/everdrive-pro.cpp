@@ -152,6 +152,7 @@ struct EverDrivePro : Interface {
     u32 lblHi = 0, lbl = 0;                 //the sector label, its high part, then the whole
     bool full = false; u32 have = 0;        //the spare holds sector `have`
     u8 sec[2048] = {};
+    u8 bram[2048] = {}; bool bramSet = false;   //(DraculaX docs/118) the backup RAM's port: written before the start
     u8 pad = 0;                             //the pad (Mednafen's order), before and after the start
     u32 tab[3 + 6 * 101] = {};              //the disc's table for the machine, from the load port
     std::vector<u8> rom;                    //the System Card, from bank 16 at the start
@@ -222,6 +223,7 @@ struct EverDrivePro : Interface {
     }
     std::vector<u8> bram;   //DRACX_BRAM=<file> (2 KB): the backup RAM at power-on, for a recording's replay (the cart: zeros)
     if(auto p = getenv("DRACX_BRAM")) if(FILE* f = fopen(p, "rb")) { bram.resize(2048); if(fread(bram.data(), 1, 2048, f) != 2048) bram.clear(); fclose(f); }
+    if(bram.empty() && dx.bramSet) bram.assign(dx.bram, dx.bram + 2048);   //(docs/118: what the 68000 wrote to the port)
     if(!dxm_power(dx.rom.data(), bram.empty() ? nullptr : bram.data(), (const s32*)dx.tab, dxSector, this)) {
       print("[EverDrive PRO] dracx: the disc's table from the load port was not taken\n"); return;
     }
@@ -242,6 +244,12 @@ struct EverDrivePro : Interface {
       if(off >> 1 == 0x40080 >> 1 && !dx.on && dx.armed) dxStart();   //(not before: the 32X's own boot reads the cart there)
       u32 want = dx.on ? (u32)dxm_drive_next() : 0;
       u32 a = dx.on ? dxm_audio() : 0;
+      if(off & 0x10) {   //(DraculaX docs/125, step 22: the console diagnostic's words - the model has no PC or edge count: 0)
+        u32 k = off >> 1 & 7;
+        value = k == 4 ? (n16)(dx.on ? dxm_frame() : 0) : k == 5 ? (n16)want : k == 6 ? (n16)((dx.armed ? 0x8000 : 0) | (dx.on ? 0x4000 : 0))
+              : k == 7 ? (n16)0xd122 : (n16)0;
+        return true;
+      }
       if(off & 8) value = (n16)a;                                               //word 4: CD-DA's play's start, 15-0
       else if(off & 4) value = off & 2 ? (a >> 31 ? 0x8000 : 0) | (a >> 24 & 3) << 13 | (a >> 16 & 0x1f)   //word 3
                                        : 0;                                     //word 2: the load port's busy bit: never
@@ -255,7 +263,13 @@ struct EverDrivePro : Interface {
     if(off >= 0x60000 && off < 0x60800) {                                       //the sector's 2 KB (command 91)
       u32 b = off & 0x7fe;
       if(upper) dx.sec[b] = data >> 8;
-      if(lower) { dx.sec[b + 1] = data; if(b == 0x7fe) { dx.full = true; dx.have = dx.lbl; } }
+      if(lower) { dx.sec[b + 1] = data; if(b == 0x7fe) { dx.full = true; dx.have = dx.lbl;
+        if(auto p = getenv("DRACX_FEEDLOG")) { static FILE* f = fopen(p, "w"); if(f) { fprintf(f, "%u\n", (unsigned)dx.lbl); fflush(f); } } } }   //(the sectors fed, in order: DraculaX docs/171)
+    } else if(off >= 0x50000 && off < 0x50800) {                                //the backup RAM (docs/118): bytes 2k, 2k + 1
+      u8* b = dx.on ? dxm_bram() : dx.bram; u32 k = off & 0x7fe;
+      if(upper) b[k] = data >> 8;
+      if(lower) b[k + 1] = data;
+      if(!dx.on) dx.bramSet = true;
     } else if(off >= 0x41000 && off < 0x41400) {                                //the load port
       if(!(off & 2)) dx.cfgHi = data;
       else if((off >> 2 & 0xff) == 0xff) dx.armed = (dx.cfgHi << 16 | data) == 0x44584f4e;   //the key, not the CD unit's
@@ -266,6 +280,11 @@ struct EverDrivePro : Interface {
   //the frame's snapshot
   auto dxRead6(u32 off, n16& value) -> bool {
     if(off >= 0x22000) return false;            //(map_dx's vw_ce: + 0x00000-0x1ffff, + 0x20000-0x21fff)
+    if(off >= 0x21800) {                        //(docs/118: the backup RAM - word k: bytes 2k high, 2k + 1 low)
+      if(dx.on) dxSync();
+      const u8* b = dx.on ? dxm_bram() : dx.bram; u32 k = off & 0x7fe;
+      value = b[k] << 8 | b[k + 1]; return true;
+    }
     if(!dx.on) { value = 0; return true; }
     dxSync();
     u32 w = off >> 1;
@@ -351,10 +370,13 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
-    if(dracx) {
+    if(dracx && dx.armed) {   //(DraculaX docs/124, the core's step 21: map_ssf's until the key, as the cores that work on the console)
       u32 b = word >> 18, off = (word & 0x3ffff) << 1; n16 v;
       if(b == bank[7] && dxRead7(off, v)) return v;
       if(b == bank[6] && dxRead6(off, v)) return v;
+      //(DraculaX docs/171: map_ssf_dx gives chip 1 - banks 16-30 - to the engine once it is started: the System
+      //Card is read there.  The console's reads of those banks then get whatever the engine is reading: not theirs)
+      if(dx.on && b >= 16 && b <= 30) return (n16)(0xdead ^ word);
     }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
