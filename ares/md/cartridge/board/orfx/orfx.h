@@ -18,16 +18,25 @@ extern "C" {
 #endif
 
 /* ---- the cart (EverDrive addresses, 16 MB; the SH2 sees cart A at 0x22000000 + A, cache-through) ----------- */
-#define ORFX_CMD_BASE    0x300000   /* 512 KB: a read at CMD_BASE + S*0x20000 + 2*w sends the word w (A16-A1); S
-                                       (A18-A17) counts 0-3 from word to word from the key on (the core drops a
-                                       word read twice, counts a gap); taken once the address was steady 80 ns */
+#define ORFX_CMD_BASE    0x380000   /* 256 KB: a read at CMD_BASE + T*0x20000 + 2*w sends the word w (A16-A1); T
+                                       (A17) alternates word to word, 1 first after the key or a SYNC; the word is
+                                       sent scrambled: w ^ k, k += ORFX_KEY_STEP before each word (k = 0 after the key
+                                       or a SYNC), so two equal words never give the same address. The same T as
+                                       the last word taken: the same word again is a read seen twice (dropped); another
+                                       word means one was lost (a gap: the core ignores every word until the next SYNC
+                                       and the unit fails). Taken once the address was steady 80 ns. (Not 0x300000: on the owner's console no SH2 read
+                                       of cart window 6 ever reached the cart bus - run 8, FINDINGS.md) */
+#define ORFX_KEY_STEP    0x9E37u
+#define ORFX_SYNC        0x3D3C00   /* a read here (not a command word): a new unit - the core's command decoder
+                                       starts afresh (no DATA left, nothing selected, no CHECK pending, no gap, the
+                                       unit not failed; the next word's T is 1); sent before every frame */
 #define ORFX_PIC_BASE    0x3C0000   /* the picture shown: 320 x 224 bytes (palette slots), then the slots' colours */
 #define ORFX_PIC_PAL     0x3D2000   /* 256 words: the 32X colour (BGR555) of each slot, for the picture shown */
 #define ORFX_STATUS      0x3D3000   /* words: 0 'OR', 1 'FX', 2 status, 3 frames drawn, 4 the last frame's time
-                                       (20 us units), 5 slots used, 6 colours without a slot, 7 version;
+                                       (20 us units), 5 slots used, 6 colours without a slot, 7 CHECKs done;
                                        8-15 the core's state, for the debug report: 8 {renderer state, line},
                                        9 {executor, output unit, word fetcher, channels}, 10 queue words,
-                                       11 words read twice, 12 gaps in the count, 13 the words taken in all,
+                                       11 words read twice, 12 wrong CHECKs, 13 the words taken in all,
                                        14 {selected memory, words of DATA left}, 15 the SRAM queue */
 #define ORFX_KEY0        0x3D3E00   /* the key: reads of KEY0 + 2k, k = 0x0F, 0x58, 0xE1 in that order, after a
                                        console reset: until then the core is krikzz's map_ssf only */
@@ -41,9 +50,18 @@ extern "C" {
 #define ORFX_OP_SELECT   0x1000     /* 0x1m00 | m: the next word is the address in memory m; writes go on from it */
 #define ORFX_OP_DATA     0x2000     /* 0x2nnn: the next nnn words (1-4095) are data for the selected memory */
 #define ORFX_OP_GO       0x3000     /* 0x300b: draw the frame into picture buffer b (0/1) */
-#define ORFX_OP_SHOW     0x4000     /* 0x400b: the console reads picture buffer b from now on */
-#define ORFX_OP_LOAD     0x5000     /* copy the tile graphics from the PSRAM copy into the SRAM (once, at start) */
+#define ORFX_OP_SHOW     0x4000     /* 0x400b: the console reads picture buffer b from now on (only as the first
+                                       word after a SYNC: a data word out of step is never taken as one) */
+#define ORFX_OP_LOAD     0x5000     /* the tile graphics from the PSRAM copy (once, at start; first after a SYNC) */
+#define ORFX_OP_CHECK    0x6000     /* the next two words: the 16-bit sum, then the count, of the SELECT and DATA
+                                       words, their address and data words, since the last CHECK or SYNC (GO, SHOW,
+                                       LOAD, NOP not counted). A GO runs only straight after a right CHECK, in a unit
+                                       that has not failed. Wrong (or a gap): the unit fails - status bit 9 until the
+                                       next SYNC, the wrong-unit count +1, the GO not run. The game reads the status
+                                       after each frame (orfx_verdict, port/orfx/orfx_send.cpp) and sends again */
 #define ORFX_OP_NOP      0x0000
+#define ORFX_PEND        256        /* a unit's writes (DATA words) at most: they wait in the core until its right
+                                       CHECK, so a unit out of step writes nothing; more: the unit fails */
 
 enum {                              /* the memories (SELECT's m) */
     ORFX_M_TILE = 0,                /* tile RAM, 0x8000 words (Cannonball's tile_ram as big-endian words) */
@@ -62,7 +80,9 @@ enum {                              /* ORFX_M_REG */
     ORFX_R_COUNT   = 8
 };
 enum { ORFX_W = 320, ORFX_H = 224, ORFX_SLOT_FIRST = 1, ORFX_SLOT_LAST = 253 };
-/* status (word 2): bit 0 drawing, bit 1 loading, bit 2 the key taken, bits 4: the buffer shown, 8-15 errors */
+/* status (word 2): bit 0 busy (drawing, loading or words queued), bit 2 the key taken, bit 4 the buffer shown,
+   bit 8 the queue overflowed, bit 9 the unit since the last SYNC failed, bit 10 it had a gap (a word lost: the
+   core ignored the rest, so nothing wrong was written) */
 
 typedef struct {
     uint16_t tile[0x8000], text[0x800], spr[0x400], road[0x800], pal[0x1000], reg[ORFX_R_COUNT];
@@ -73,6 +93,15 @@ typedef struct {
     const uint8_t *gfx_sprites, *gfx_tiles, *gfx_road;
     /* the stream decoder */
     int sel_m, data_left, frames;
+    int chk_pend, chk_sok, bad, gap, poison, fresh, go_ok;  /* CHECK: words of it to come (2 sum, 1 count), the sum
+                                               right; the unit failed; it had a gap; ignoring words; the first word
+                                               after a SYNC; a GO may run */
+    uint16_t sum, cnt, n_bad, n_chk, n_dup, n_taken;
+    int q_tog; uint16_t q_last, q_key;      /* the bus: the last address taken (A16-A1), its A17; the scramble */
+    int shown, load_req;                    /* SHOW's buffer; a LOAD was asked (the bus side does it) */
+    uint16_t* line13;                       /* GO draws its 13-bit pixels here too (the PC bench), or 0 */
+    int n_pend;                             /* the unit's writes, waiting for its right CHECK (ORFX_PEND at most) */
+    int8_t pend_m[256]; uint16_t pend_a[256], pend_d[256];
     uint32_t sel_a;
     /* counts for the time estimate (orfx_cycles), the last frame */
     struct { uint32_t road_words, tile_words, map_words, spr_scan, spr_lines, spr_words, spr_nibbles, spr_pixels,
@@ -80,7 +109,12 @@ typedef struct {
 } orfx_t;
 
 void     orfx_init(orfx_t* f, const uint8_t* sprites, const uint8_t* tiles, const uint8_t* road);
-void     orfx_word(orfx_t* f, uint16_t w);                    /* one word of the stream */
+int      orfx_cmd(orfx_t* f, int a17, uint16_t a);            /* a read of the command window (a = A16-A1, the
+                                                                 word scrambled): 0 dropped (read twice), 1 taken,
+                                                                 2 a gap (the unit fails) */
+void     orfx_word(orfx_t* f, uint16_t w);                    /* one word of the stream, in step */
+void     orfx_sync(orfx_t* f);                                /* a read of ORFX_SYNC */
+#define  ORFX_SYNC_WORD 0x10000u   /* the sender's put() gets this for a SYNC (its words are 32-bit for that) */
 void     orfx_draw(orfx_t* f, int buf, uint16_t* line13);     /* the frame (line13: the 13-bit pixels, or 0) */
 uint32_t orfx_cycles(const orfx_t* f);                        /* the RTL's clocks for the last frame (estimate) */
 void     orfx_road_pack(const uint8_t* roads512, uint8_t* out); /* OUTRUN.PAK's decoded road -> ORFX_GFX_ROAD */

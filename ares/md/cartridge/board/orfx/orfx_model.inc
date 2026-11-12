@@ -35,6 +35,45 @@ void orfx_road_pack(const uint8_t* roads512, uint8_t* out)
 }
 
 /* ---------------------------------------------------------------------------------------------- the stream */
+void orfx_sync(orfx_t* f)
+{
+    f->data_left = 0;
+    if (f->sel_m < -1) f->sel_m = -1;               /* (a SELECT waiting for its address: dropped) */
+    f->chk_pend = 0;
+    f->sum = 0; f->cnt = 0;
+    f->go_ok = 0; f->bad = 0; f->gap = 0; f->poison = 0;
+    f->fresh = 1;
+    f->n_pend = 0;
+    f->q_tog = 0;                                   /* the next word's A17 is 1 */
+    f->q_key = 0;
+}
+
+static void fail(orfx_t* f)                         /* the unit fails (counted once) */
+{
+    if (!f->bad) f->n_bad++;
+    f->bad = 1;
+    f->go_ok = 0;
+    f->n_pend = 0;                                  /* (its writes: dropped) */
+}
+
+int orfx_cmd(orfx_t* f, int a17, uint16_t a)
+{
+    if (a17 == f->q_tog)
+    {
+        if (a == f->q_last) { f->n_dup++; return 0; }   /* the same read seen twice */
+        f->q_last = a; f->n_taken++;                /* a word was lost before this one: ignore all to the SYNC */
+        f->q_key = (uint16_t)(f->q_key + ORFX_KEY_STEP);
+        f->fresh = 0;
+        f->gap = 1; f->poison = 1;
+        fail(f);
+        return 2;
+    }
+    f->q_tog = a17; f->q_last = a; f->n_taken++;
+    f->q_key = (uint16_t)(f->q_key + ORFX_KEY_STEP);
+    orfx_word(f, (uint16_t)(a ^ f->q_key));
+    return 1;
+}
+
 static void mem_write(orfx_t* f, int m, uint32_t a, uint16_t v)
 {
     switch (m)
@@ -50,9 +89,37 @@ static void mem_write(orfx_t* f, int m, uint32_t a, uint16_t v)
 
 void orfx_word(orfx_t* f, uint16_t w)
 {
-    if (f->data_left)                               /* data for the selected memory */
+    int fresh = f->fresh;
+    f->fresh = 0;
+    if (f->poison) return;                          /* after a gap: nothing until the SYNC */
+    if (f->chk_pend == 2) { f->chk_sok = w == f->sum; f->chk_pend = 1; return; }   /* CHECK's sum */
+    if (f->chk_pend == 1)                           /* CHECK's count */
     {
-        mem_write(f, f->sel_m, f->sel_a++, w);
+        f->chk_pend = 0;
+        f->n_chk++;
+        if (f->chk_sok && w == f->cnt && !f->bad)
+        {
+            f->go_ok = 1;
+            for (int i = 0; i < f->n_pend; i++) mem_write(f, f->pend_m[i], f->pend_a[i], f->pend_d[i]);
+            f->n_pend = 0;
+        }
+        else fail(f);
+        f->sum = 0; f->cnt = 0;
+        return;
+    }
+    int cmdpos = !f->data_left && f->sel_m >= -1;
+    if (cmdpos && (w & 0xf000) == ORFX_OP_CHECK) { f->chk_pend = 2; return; }
+    if (!cmdpos || (w & 0xf000) == ORFX_OP_SELECT || (w & 0xf000) == ORFX_OP_DATA)
+    {                                               /* summed: SELECT, DATA, their words; a GO must follow a CHECK */
+        f->sum = (uint16_t)(f->sum + w); f->cnt++;
+        f->go_ok = 0;
+    }
+    if (f->data_left)                               /* data for the selected memory: waits for the CHECK */
+    {
+        if (f->n_pend == ORFX_PEND) { fail(f); f->poison = 1; return; }
+        f->pend_m[f->n_pend] = (int8_t)f->sel_m; f->pend_a[f->n_pend] = (uint16_t)f->sel_a; f->pend_d[f->n_pend] = w;
+        f->n_pend++;
+        f->sel_a++;
         f->data_left--;
         return;
     }
@@ -66,8 +133,14 @@ void orfx_word(orfx_t* f, uint16_t w)
     {
         case ORFX_OP_SELECT: f->sel_m = -2 - (w & 7); break;
         case ORFX_OP_DATA:   f->data_left = w & 0xfff; break;
-        case ORFX_OP_GO:     orfx_draw(f, w & 1, 0); break;
-        default: break;                             /* SHOW, LOAD: the bus side; NOP */
+        case ORFX_OP_GO:                            /* only straight after a right CHECK */
+            if (f->go_ok) orfx_draw(f, w & 1, f->line13);
+            else fail(f);
+            f->go_ok = 0;
+            break;
+        case ORFX_OP_SHOW: if (fresh) f->shown = w & 1; break;
+        case ORFX_OP_LOAD: if (fresh) f->load_req = 1; break;
+        default: break;                             /* NOP */
     }
 }
 

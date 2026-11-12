@@ -152,6 +152,41 @@ struct EverDrivePro : Interface {
   //0x380000-0x3DFFFF once its key is read
   bool orfx = false;                        //rbfModel == "orfx"
   OrFx fx;
+
+  //A fault the console has and the emulator cannot have by itself: a USB read of the cart's memory (edlink memrd) while
+  //the game runs. In krikzz's base (lib_base pi_map.sv, dma.sv, mem_ctrl) the MCU's address and OE then replace the
+  //console's on that PSRAM chip: a console read of it gets the word at the MCU's address, nothing waits, nothing is
+  //told (MicroNut99/DraculaX_32X docs/177-178: every freeze of its v14-v25 came with such a read). To exercise it:
+  //  ARES_EDP_USB="period=3000,len=2048,at=0x1ff800,chip=0"  every `period` ms a read of `len` bytes from MCU address
+  //  `at` (chip 0 = banks 0-15, chip 1 = banks 16-31), about 1 byte a microsecond; each console read of that chip
+  //  meanwhile gets the MCU's word. "[edp usb]" lines (the first 20) and a count at the end. The real core counts such
+  //  accesses for the MCU (fpga/orfx registers 80-95, word 15) - the rule is: never read the cart's memory in a run.
+  struct EdpUsb {
+    u32 period = 0, len = 0x800, at = 0x1ff800, chip = 0, hits = 0;
+    EdpUsb() {
+      auto e = getenv("ARES_EDP_USB"); if(!e) return;
+      for(const char* p = e; p && *p; p = strchr(p, ','), p = p ? p + 1 : nullptr) {
+        const char* q = strchr(p, '='); if(!q) break;
+        u32 v = (u32)strtoul(q + 1, nullptr, 0);
+        if(!strncmp(p, "period", 6)) period = v; else if(!strncmp(p, "len", 3)) len = v;
+        else if(!strncmp(p, "at", 2)) at = v; else if(!strncmp(p, "chip", 4)) chip = v & 1;
+      }
+      fprintf(stderr, "[edp usb] a USB read of chip %u, %u bytes from 0x%07x, every %u ms\n", chip, len, at, period);
+      atexit([] { fprintf(stderr, "[edp usb] console reads that got the MCU's word: %u\n", self().hits); });
+    }
+    static auto self() -> EdpUsb& { static EdpUsb u; return u; }
+    //the MCU's word for a console read of this word (true), or not now
+    template<typename Rd> auto take(u32 word, u64 us, u32 words, Rd ram, u16& v) -> bool {
+      if(!period || (word >> 22 & 1) != chip) return false;      //(word: 23-bit word index; bit 22 = 8 MB = chip 1)
+      u64 ph = us % ((u64)period * 1000);
+      if(ph >= len) return false;
+      u32 mw = ((at + (u32)ph) >> 1) % words;
+      v = ram(mw);
+      if(++hits <= 20) fprintf(stderr, "[edp usb] t=%.3f s: a console read of word 0x%06x got the MCU's (0x%06x)\n", us / 1e6, word, mw);
+      return true;
+    }
+  };
+  EdpUsb& usb = EdpUsb::self();
   u32 odV = 0; u64 odLines = 0;           //the model's time: the VDP's lines counted (63.6 us each, NTSC; the
   auto nowUs() -> u64 {                   //threads' clocks are not absolute: the scheduler subtracts from them)
     u32 v = vdp.vcounter();
@@ -385,6 +420,7 @@ struct EverDrivePro : Interface {
       if(b == bank[7] && dxRead7(off, v)) return v;
       if(b == bank[6] && dxRead6(off, v)) return v;
     }
+    if(usb.period) { u16 v; if(usb.take(word, nowUs(), ram.size(), [&](u32 i) -> u16 { return (u16)ram[i]; }, v)) return v; }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
       sh2Word = word;
