@@ -196,6 +196,11 @@ struct EverDrivePro : Interface {
   }
 
   //an access by the 68000 or an SH2: the machine brought to its time first
+  auto dxId() -> u32 {   //(DRACX_ID=<hex>: an older core's ID word for a test - below 0xd161 SELECT is not given, as step 60; DraculaX docs/192)
+    static u32 id = 0;
+    if(!id) { id = 0xd161; if(auto e = getenv("DRACX_ID")) { u32 v = (u32)strtoul(e, nullptr, 16); if(v) id = v; } }
+    return id;
+  }
   auto dxSync() -> void {
     if(cpu.active()) cpu.synchronize(*cartridge);
     else if(m32x.shm.active()) m32x.shm.synchronize(*cartridge);
@@ -240,7 +245,8 @@ struct EverDrivePro : Interface {
   auto dxRead7(u32 off, n16& value) -> bool {
     if(off < 0x10000) { dx.lbl = dx.lblHi << 12 | (off >> 4 & 0xfff); dx.full = false; return false; }   //label, low
     if(off >= 0x10000 && off < 0x12000) { dx.lblHi = off >> 4 & 0x1ff; return false; }                  //label, high
-    if(off >= 0x48000 && off < 0x49000) { dx.pad = off >> 4; if(dx.on && dxMasks.empty()) dxm_pad_now(dx.pad); return false; }
+    if(off >= 0x48000 && off < 0x49000) { dx.pad = off >> 4; if(dxId() < 0xd161) dx.pad &= ~4u;   //(step 60 and before: SELECT never given, map_ssf_dx's dx_btn)
+      if(dx.on && dxMasks.empty()) dxm_pad_now(dx.pad); return false; }
     if(off >= 0x40000 && off < 0x40100) {                                                                //the registers
       dxSync();
       if(off >> 1 == 0x40080 >> 1 && !dx.on && dx.armed) dxStart();   //(not before: the 32X's own boot reads the cart there)
@@ -249,7 +255,7 @@ struct EverDrivePro : Interface {
       if(off & 0x10) {   //(DraculaX docs/125, step 22: the console diagnostic's words - the model has no PC or edge count: 0)
         u32 k = off >> 1 & 7;
         value = k == 4 ? (n16)(dx.on ? dxm_frame() : 0) : k == 5 ? (n16)want : k == 6 ? (n16)((dx.armed ? 0x8000 : 0) | (dx.on ? 0x4000 : 0))
-              : k == 7 ? (n16)0xd161 : (n16)0;   //(the core's ID: step 61 - the CD unit's log, SELECT given; DraculaX docs/191)
+              : k == 7 ? (n16)dxId() : (n16)0;   //(the core's ID: step 61 - the CD unit's log, SELECT given; DraculaX docs/191)
         return true;
       }
       if(off & 8) value = (n16)a;                                               //word 4: CD-DA's play's start, 15-0
