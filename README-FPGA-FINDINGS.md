@@ -211,6 +211,12 @@ extends ares):
    each picture, and two ticks plus the stream never fit: the game sat at 15 FPS until the scene got light. An
    emulator that runs a little fast hides this completely. *Wanted:* nothing in ares; in the game, print the loop's
    parts (logic, send, waits) on screen and in the debug core from the first build.
+   **(12 Nov: ares had what was needed all along. `ARES_32X_TIMING=console` with `ares-headless --profile` and the
+   ELF's symbols gave the race by function: the two status rows cost 5.2 ms of every picture, the stream's compare
+   5.5, two word-by-word memory swaps 1.6 a tick - logic + send read 28 ms of 33 and the picture still came every
+   4 vblanks. With those three gone (the V10 disc) the same race holds 30 FPS there. Profile at the console's
+   timing before a console run about speed, and time the whole loop: the parts nobody suspected were the
+   largest. CannonballCD32X `fpga/orfx/FINDINGS.md`, "30 FPS: the game's own time".)**
 4. **Cart window 6 (run 8).** The SH2's reads of 0x300000-0x37FFFF (the stream's first home) never appeared at the
    cart on the owner's console: the debug core counted none in a whole run, while window 7 worked. The cause is not
    known. *Wanted:* a line in ares when an SH2 reads the EverDrive's window 6 (`ARES_32X_TRAP`), until someone finds
