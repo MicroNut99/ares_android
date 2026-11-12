@@ -183,7 +183,8 @@ struct OrFx {
   }
 
   template<typename RamRead> auto word(u32 tg, u16 a, u64 us, RamRead ramRead) -> void {
-    if(busy(us)) t.trap(OrFxTraps::WORD_WHILE_BUSY, f->frames, us, "a word %.1f ms before the core is idle", (busyUntil - us) / 1000.0);
+    bool dup = tg == (u32)f->q_tog && a == f->q_last;   //(a read seen twice: the core drops it before its queue)
+    if(busy(us) && !dup) t.trap(OrFxTraps::WORD_WHILE_BUSY, f->frames, us, "a word %.1f ms before the core is idle", (busyUntil - us) / 1000.0);
     //in step (the A17 right, no gap, no CHECK words pending): the word, decoded, checked before the model takes it
     if(tg != (u32)f->q_tog && !f->poison && !f->chk_pend) {
       u16 w = a ^ (u16)(f->q_key + ORFX_KEY_STEP);
