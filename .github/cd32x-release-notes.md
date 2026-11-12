@@ -1,6 +1,7 @@
-ares CD32X v1.9 - PC Engine CD cart cores and their error traps (12 Nov 2026)
+ares CD32X v1.9 - PC Engine CD cart cores and their error traps; U-R-R's solar storms (12 Nov 2026)
 
 - v1.9: **Dracula X CD32X's and Gate of Thunder CD32X's cart cores, modelled, with error traps.** Both ports run a whole PC Engine CD on the Mega EverDrive PRO's FPGA and both boot and play on the console. Their models (`dracx` with its backup RAM port, key and console diagnostic words; `gotx`, new) are chosen by a `mega-pro.rbf.ares` beside the launcher. The traps print what the console's cart would not serve: a console read or write of PSRAM chip 1 once the engine runs (`[dracx TRAP]`, `[gotx TRAP]`), the PC Engine CPU fallen into the I/O page, SELECT asked, the backup RAM unlike the cart's (`GOTX_BRAM_GARBAGE=1`); `ARES_32X_TRAP=1` prints every SH2 access to the frame buffer, palette or VDP registers without FM (the console makes the SH2 wait there) and the 68000's with FM. `DRACX_FEEDLOG=<file>` logs the sectors a core asks for. Nothing changes for any other cart or ROM. README-FPGA-FINDINGS.md section 6; `scripts/cd32x-pce-trap-test.py`.
+- v1.9: **U-R-R's cart FPGA engine model updated to its version 5** (U-R-R v123 on): the solar storms - 512 particles boiling off the burning stars, flares flung at the player, storm fronts rolling in from the screen's edges, the particles that reach the player counted (they take shield points) - and version 4's lettering, each letter moving on its own. ares drew none of it before (its model was version 3; the console with U-R-R v124's core does). U-R-R v120-v122 need version 4 or later, v123 on version 5; with an older model the game falls back for what the engine lacks.
 
 ares CD32X v1.8 - U-R-R's round rings (8 Nov 2026)
 
