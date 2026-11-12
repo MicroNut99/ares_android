@@ -133,16 +133,17 @@ a run with no trap and with the faults handled is the least to ask before a cons
 | ROM1_READ | everdrive-pro.cpp, orfx | the console read banks 16-30 while the core is on (the core's PSRAM: on the console the answer is the core's bus) | yes |
 | `ARES_ORFX_FAULT=dup=N,gap=N,pair=N,slow=K,hang=F` | orfx | inject: a word in N read twice / lost / two in a row lost (A17 then looks right: only the CHECK's count catches it); the core K times slower; the core hangs after F frames | |
 | `ARES_EDP_USB=period=P,len=L,at=A,chip=C` | everdrive-pro.cpp (any model) | inject a USB read of the cart's memory (edlink memrd): every P ms, L bytes from MCU address A on PSRAM chip C (0: banks 0-15, 1: banks 16-31), ~1 byte a us; a console read of that chip meanwhile gets the word at the MCU's address, as krikzz's mem_ctrl does. `[edp usb]` lines, a count at the end | |
-| `ARES_32X_TRAP=1` | branch `dracx-bram`, md/m32x (`m32xTrap`) | an SH2 access to the VDP registers, frame buffer or palette while FM = 0, a 68000 one while FM = 1 (the console makes the SH2 wait there; ares let it through) | |
-| chip 1 is the engine's | branch `dracx-bram`, everdrive-pro.cpp | a console read of banks 16-30 once DraculaX's engine is on | |
-| `DRACX_FEEDLOG=<file>` | branch `dracx-bram`, everdrive-pro.cpp | every sector DraculaX's core asks for and gets, in order | |
+| `ARES_32X_TRAP=1` | md/m32x (`m32xTrap`) | an SH2 access to the VDP registers, frame buffer or palette while FM = 0, a 68000 one while FM = 1 (the console makes the SH2 wait there; ares let it through) | |
+| chip 1 is the engine's | everdrive-pro.cpp (dracx, gotx) | a console read of banks 16-30 once DraculaX's engine is on | |
+| `DRACX_FEEDLOG=<file>` | everdrive-pro.cpp | every sector DraculaX's core asks for and gets, in order | |
 | `ARES_RV_GARBAGE=1`, `ARES_RV_LOG=1` | everdrive-pro.cpp | an SH2 read of the cart while RV = 1: the EverDrive's answer (garbage) for every cart / which SH2 read where | |
 
 **What ares cannot trap at all: the pins.** ares' memories are ideal: a write lands where the model says. On the
 console a core that shares the EverDrive's SRAM with the console must never let the SRAM's address change while its
 WE is on (OutRun CD32X kit 9: stray tiles in tile RAM and specks in the picture, never seen here). That trap lives
 in the core's Verilator bench (CannonballCD32X `fpga/orfx/sim/tb_orfx.cpp`, "TRAP SRAM"); a core is not ready for
-the console until its bench has the memories' own rules as traps and counts none.
+the console until its bench has the memories' own rules as traps and counts none. The whole report:
+[README-FPGA-FINDINGS.md](README-FPGA-FINDINGS.md) section 7.
 
 **The trap ares cannot have, and what replaces it:** the USB side taking the cart's memory during a run. It froze
 DraculaX CD32X v14-v25 (MicroNut99/DraculaX_32X docs/177-178): the MCU's address and OE replace the console's on the

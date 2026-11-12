@@ -162,11 +162,74 @@ launcher (no game data) that starts the engine and then reads and writes bank 20
 
 A green ares run with no trap is still not a console pass.
 
-## 7. For the next AI
+## 7. A drawing core that shares the SRAM with the console: OutRun CD32X's renderer (`orfx`, 11-12 Nov 2026)
+
+OutRun CD32X (MicroNut99/CannonballCD32X, `fpga/orfx`) has the FPGA draw the whole picture (Cannonball's renderer in
+RTL) into the cart's SRAM; the master SH2 runs the game and sends each frame's video state as reads of a command
+window; the slave SH2 copies the finished picture to the frame buffer. It took ten console runs. Every one of them was
+green in ares first. This is the report of what failed, the traps that now catch it, and what ares still cannot show.
+The log, run by run: CannonballCD32X `fpga/orfx/FINDINGS.md`.
+
+**In ares now** (model `orfx`, `board/orfx/orfx_board.h`; `mega-pro.rbf.ares` = `orfx`):
+
+| Trap / fault | Switch | What it catches or does | On the console |
+|---|---|---|---|
+| WORD_WHILE_BUSY | `ARES_ORFX_TRAP=log\|stop\|off` (all the traps below) | a command word while the core draws | the core queues 1024 words and applies them after the frame; ares' model would apply them at once |
+| SEQ_GAP / SEQ_DUP / UNIT_WRONG | | a word lost / read twice / a unit whose CHECK failed | run 4: a doubled or lost word put the decoder out of step - garbage in the memories, seconds of drawing. Since V6 a unit out of step writes nothing and is sent again |
+| NOT_ON, BAD_OP, DATA_OVERRUN | | a word before the key; an unknown command; DATA past a memory | lost words, wrapped writes |
+| SHOW_DRAWING, READ_DRAWING | | the buffer being drawn shown or read | a torn picture |
+| SLOW, STUCK, RUNAWAY, SLOTS | | a frame over 33 ms / 500 ms; a sprite line over 1024 words; over 253 colours | the game's 2 s timeout, then the SH2s draw |
+| ROM1_READ | | the console reads banks 16-30 while the core is on | the core's bus, not the bank |
+| lost and doubled words | `ARES_ORFX_FAULT=gap=N,pair=N,dup=N` | 1 word in N lost / two in a row lost / read twice | the console's address bus strays for 40 ns now and then; what the game's resend path must survive |
+| a slow or dead core | `ARES_ORFX_FAULT=slow=K,hang=F` | the core K times slower; hangs after F frames | run 4, run 9 |
+| **a USB read of the cart** | `ARES_EDP_USB=period=P,len=L,at=A,chip=C` (any EverDrive model) | every P ms a console read of that PSRAM chip gets the word at the MCU's address | section 6's first "cannot trap", now injectable: OutRun freezes in ares exactly as Dracula X froze on the console |
+
+**What the console showed that ares did not** (each cost at least one run; the first four are the report for whoever
+extends ares):
+
+1. **The pins of a shared memory (runs 9-10).** The core's SRAM pins followed the console's read strobe itself:
+   address, data and WE all changed the moment the console came. A core write caught there had its address changing
+   while WE was on - an SRAM writes wherever the address goes. On the console: stray tiles that stay in tile RAM,
+   specks in the picture; and before that, a memory channel left idle with its answer never given (the renderer stuck
+   in its 3rd frame). ares' memories are ideal and it has no pins: **it cannot trap this.** The trap lives in the
+   core's Verilator bench ("TRAP SRAM": the address must not change in the clock before, during or after a clock with
+   WE; kit 9's core: 77,476 in 12 frames). Rule: a memory the core *writes* gets its address and WE from registers,
+   in an order; "the console wins at once from the pins" is right only for a memory the core reads.
+2. **Both SH2s on one cart bus (run 10).** The master's stream took 12-23 ms a frame on the console while the slave
+   copied the picture from the cart; ares showed 11 ms and 30 FPS where the console ran 15. ares gives each SH2 its
+   cart reads without the other waiting. *Wanted in ares:* one cart bus for both SH2s under
+   `ARES_32X_TIMING=console` (an access waits for the other CPU's access, a cache-line fill holds the bus for its 8
+   words at ~340 ns each).
+3. **A frame-rate trap of the game's own making.** With the loop a little over one frame, two logic ticks came due
+   each picture, and two ticks plus the stream never fit: the game sat at 15 FPS until the scene got light. An
+   emulator that runs a little fast hides this completely. *Wanted:* nothing in ares; in the game, print the loop's
+   parts (logic, send, waits) on screen and in the debug core from the first build.
+4. **Cart window 6 (run 8).** The SH2's reads of 0x300000-0x37FFFF (the stream's first home) never appeared at the
+   cart on the owner's console: the debug core counted none in a whole run, while window 7 worked. The cause is not
+   known. *Wanted:* a line in ares when an SH2 reads the EverDrive's window 6 (`ARES_32X_TRAP`), until someone finds
+   out why.
+5. **The debug words' packing.** A concatenation one bit too wide shifted every word above it in the report. Count
+   the widths of anything that feeds fixed slots.
+6. **A build of the wrong core.** Two games' kits on one bench: the build script of one, the disc of the other. Every
+   kit now prints its core's md5 and the poll says which core answers (`NOT THE ORDBG CORE`).
+
+**A core that draws or writes into a memory the console also reads, before the console:**
+1. Its bench carries the memory's own rules as traps (address stable around WE; a PSRAM's settle time) and the
+   console's habits as faults: reads back to back with /OE low, the address straying 40 ns, words lost and doubled,
+   the whole picture copied while the core draws. No trap, every picture equal to the C model.
+2. In ares: no `[orfx trap]` without faults; with `gap`, `pair`, `dup` the picture still right; with `ARES_EDP_USB`
+   expect a freeze - and never read the cart's memory over USB in a run.
+3. The MCU's view of the core from the first build (the status page at 0x1830000): frames, words taken, units wrong,
+   the renderer's state, MCU accesses of the memory, a watchdog's bite. A protocol only the console can query is
+   blind exactly when the console's reads are what fails.
+
+## 8. For the next AI
 
 - Read Rayman's `README_FOR_AI.md` and `fpga/README.md`, and U-R-R's `cartridge/fpga` notes, before writing any RTL.
 - Start from Rayman's `map_rayfx.sv` (the wrapper) and its two memory channels; put your engine behind them.
 - A deterministic stop (same frame every run) is not a bus problem; a random one may be. Check with the core
   swapped or removed before rewriting RTL.
+- A memory your core writes and the console reads: section 7's rule for its pins, and its bench trap, before any
+  console run.
 - The owner burns discs for real tests only. One change per disc, small discs where possible (no CD audio:
   about 45 MB), and say what each test will tell.
