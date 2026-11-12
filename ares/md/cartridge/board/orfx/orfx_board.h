@@ -17,7 +17,7 @@ struct OrFx {
   u32 shown = 0;
   u64 busyUntil = 0, lastUs = 0;
   u32 lastTime20 = 0;
-  u32 words = 0;
+  u32 words = 0, seq = 0, dups = 0, gaps = 0;
 
   auto reset(bool) -> void { on = false; keyStep = 0; }
 
@@ -25,19 +25,26 @@ struct OrFx {
   template<typename RamRead> auto read(u32 local, u16& v, u64 us, RamRead ramRead) -> bool {
     static const u32 key[3] = {0x0f, 0x58, 0xe1};
     if(local >= ORFX_KEY0 && local < ORFX_KEY0 + 0x200) {
-      if(local == ORFX_KEY0 + 2 * key[keyStep]) { if(++keyStep == 3) { on = true; keyStep = 0; start(); } }
+      if(local == ORFX_KEY0 + 2 * key[keyStep]) { if(++keyStep == 3) { on = true; keyStep = 0; seq = 0; start(); } }
       else keyStep = local == ORFX_KEY0 + 2 * key[0] ? 1 : 0;
       if(!on) return false;
     }
     if(!on || local < ORFX_CMD_BASE || local >= 0x3e0000) return false;
-    if(local < ORFX_PIC_BASE) { word(local >> 1 & 0xffff, us, ramRead); v = 0; return true; }
+    if(local < ORFX_PIC_BASE) {
+      if(local < ORFX_CMD_BASE + 0x80000) {
+        u32 sq = local >> 17 & 3;
+        if(sq == ((seq - 1) & 3)) dups++;
+        else { if(sq != seq) gaps++; seq = (sq + 1) & 3; word(local >> 1 & 0xffff, us, ramRead); }
+      }
+      v = 0; return true;
+    }
     if(local < ORFX_PIC_PAL) {
       u32 o = local - ORFX_PIC_BASE;
       v = o + 1 < ORFX_W * ORFX_H ? (u16)(f->pic[shown][o & ~1u] << 8 | f->pic[shown][o | 1]) : 0;
       return true;
     }
     if(local < ORFX_PIC_PAL + 0x200) { v = f->slotpal[shown][(local - ORFX_PIC_PAL) >> 1]; return true; }
-    if(local >= ORFX_STATUS && local < ORFX_STATUS + 0x10) {
+    if(local >= ORFX_STATUS && local < ORFX_STATUS + 0x20) {
       switch((local - ORFX_STATUS) >> 1) {
       case 0: v = 0x4f52; break;
       case 1: v = 0x4658; break;
@@ -46,7 +53,11 @@ struct OrFx {
       case 4: v = lastTime20; break;
       case 5: v = f->slots[shown]; break;
       case 6: v = f->overflow[shown]; break;
-      default: v = 1; break;
+      case 7: v = 2; break;
+      case 11: v = dups; break;
+      case 12: v = gaps; break;
+      case 13: v = words; break;
+      default: v = 0; break;
       }
       return true;
     }

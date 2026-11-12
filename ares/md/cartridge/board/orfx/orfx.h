@@ -18,13 +18,18 @@ extern "C" {
 #endif
 
 /* ---- the cart (EverDrive addresses, 16 MB; the SH2 sees cart A at 0x22000000 + A, cache-through) ----------- */
-#define ORFX_CMD_BASE    0x380000   /* 256 KB: a read at CMD_BASE + T*0x20000 + 2*w sends the word w (A1-A16); T
-                                       (A17) alternates from word to word, so two equal words are two accesses */
+#define ORFX_CMD_BASE    0x300000   /* 512 KB: a read at CMD_BASE + S*0x20000 + 2*w sends the word w (A16-A1); S
+                                       (A18-A17) counts 0-3 from word to word from the key on (the core drops a
+                                       word read twice, counts a gap); taken once the address was steady 80 ns */
 #define ORFX_PIC_BASE    0x3C0000   /* the picture shown: 320 x 224 bytes (palette slots), then the slots' colours */
 #define ORFX_PIC_PAL     0x3D2000   /* 256 words: the 32X colour (BGR555) of each slot, for the picture shown */
 #define ORFX_STATUS      0x3D3000   /* words: 0 'OR', 1 'FX', 2 status, 3 frames drawn, 4 the last frame's time
-                                       (20 us units), 5 slots used, 6 colours without a slot, 7 version */
-#define ORFX_KEY0        0x3D3F00   /* the key: reads of KEY0 + 2k, k = 0x0F, 0x58, 0xE1 in that order, after a
+                                       (20 us units), 5 slots used, 6 colours without a slot, 7 version;
+                                       8-15 the core's state, for the debug report: 8 {renderer state, line},
+                                       9 {executor, output unit, word fetcher, channels}, 10 queue words,
+                                       11 words read twice, 12 gaps in the count, 13 the words taken in all,
+                                       14 {selected memory, words of DATA left}, 15 the SRAM queue */
+#define ORFX_KEY0        0x3D3E00   /* the key: reads of KEY0 + 2k, k = 0x0F, 0x58, 0xE1 in that order, after a
                                        console reset: until then the core is krikzz's map_ssf only */
 
 /* the private copy of the graphics (tools/or_sdpack.py, banks 16+ = the second PSRAM, never read by the game) */
