@@ -1,6 +1,7 @@
 #include "urr-fx/urr_fx.h"
-#include "dracx/dxm.h"
-#include "ordbg/ordbg_model.h"   //OutRun CD32X (fpga/ordbg): the EverDrive's 'ordbg' debug core   //DraculaX CD32X (docs/101): the EverDrive's 'dracx' engine, the PC Engine CD machine
+#include "dracx/dxm.h"   //DraculaX CD32X (docs/101): the EverDrive's 'dracx' engine, the PC Engine CD machine
+#include "gotx/gotm.h"   //Gate of Thunder CD32X (docs/37): the EverDrive's 'gotx' engine, the same machine with its timer
+#include "ordbg/ordbg_model.h"   //OutRun CD32X (fpga/ordbg): the EverDrive's 'ordbg' debug core
 #include "orfx/orfx_board.h"     //OutRun CD32X (fpga/orfx): the renderer core (with ordbg: 'orfx')
 namespace Board {
 

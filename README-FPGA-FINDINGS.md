@@ -13,6 +13,9 @@ Flash CD32X's first core failed on the owner's console after passing in ares:
   (7 Nov) passed ares and its Verilator check, then hung on the console; the second (8 Nov), rebuilt the
   Rayman way, **works on the console** (V23: the title, World 1-1's bonus stage at 30 fps; V24: World 1-1 at
   about 11 fps, 2-2 at 8-14).
+- **Dracula X CD32X** and **Gate of Thunder CD32X** (MicroNut99/DraculaX_32X, MicroNut99/Gate-of-Thunder_CD32X): a
+  whole PC Engine CD on the cart (the HuC6280, a VDC, a CD unit). **Both boot and play on the console** (11 Nov).
+  Their error traps are in section 6.
 
 **The short version:** ares's models answer a read the instant it is made, so ares cannot show a core that
 answers the console too late. Build every core the way Rayman's and U-R-R's are built (section 2), check the
@@ -116,7 +119,50 @@ Rules added to section 2 for a core that runs a CPU from a memory the console al
 13. **Build a console diagnostic first**, before the first console test: the key's answer, the core's state and
     address, its frame count, printed by the 32X on the screen.
 
-## 6. For the next AI
+## 6. Error traps for PC Engine CD cart cores (Dracula X and Gate of Thunder, 11-12 Nov 2026)
+
+Dracula X CD32X and Gate of Thunder CD32X both run a PC Engine CD on the cart: the MiSTer HuC6280, Dracula X's
+`dx_vdc` / `dx_cd`, the System Card and the game's track in the cart's PSRAM. Both boot and play on the console; both
+found that ares ran green while the console failed. The traps below are what they built from those failures. They are
+on main for every future PC Engine CD core: reuse them.
+
+| Trap | Switch | Where | What it catches | On the console |
+|---|---|---|---|---|
+| The 32X's FM rule | `ARES_32X_TRAP=1` (`=2`: every one) | `md/m32x/m32x.cpp` `m32xTrap` | an SH2 access to the frame buffer, palette or VDP registers while FM = 0; a 68000 one while FM = 1; every FM change by the 68000 | the SH2 **waits** until FM = 1 (Sega's manual, "VDP Access Competition"). If the master is the only one that sets FM, it waits for itself for ever. **Any SH2 line printed is a stop on the console.** (Dracula X docs/175) |
+| Chip 1 after the start: read | always (dracx, gotx) | `board/everdrive-pro.cpp` `coreTrap` kind 0 | a console read of PSRAM chip 1 (banks 16-30), outside the core's own windows, once the engine runs | the core gives chip 1 to the engine (the System Card is read there). The console gets the engine's bus: dracx answers `0xDEAD ^ word`, gotx `0xFFFF`. (Dracula X docs/171, Gate of Thunder docs/44-45) |
+| Chip 1 after the start: write | always (dracx, gotx) | kind 1 | a console write there (dracx: not windows 6 and 7) | lost (ares drops it) |
+| The CPU in the I/O page | always (gotx) | kind 2 | the HuC6280 running below `$2000` after having run above it; prints the last 64 PCs | Gate of Thunder run 1b: the CPU at PC 0008 from frame 49, only its interrupts running |
+| SELECT | always (gotx) | kind 3 | the SH2 asks for SELECT | never given: RUN + SELECT is the PC Engine's soft reset, and the stack's 6-button read reports SELECT that is not pressed (Dracula X docs/132). ares masks it. |
+| The backup RAM | gotx: `GOTX_BRAM_GARBAGE=1` | kind 4 | notes that ares's default (Mednafen's formatted blank one) is not the cart's | the cart's `sram` is uninitialised (reads `0x0FFF`). `GOTX_BRAM_GARBAGE=1` models it. |
+| Auto-RUN key | gotx: the key `GTAR` | `gxFrame` | RUN for 16 frames in every 512, until the drive is asked | the same (Gate of Thunder docs/41) |
+| The sectors fed | `DRACX_FEEDLOG=<file>` | `dxRead7` | every sector the core asks for, in order | makes a pack's order file (Dracula X `pack_game.py --order`) |
+
+The board's traps print `[<core> TRAP] ...` the first time, then at the 2nd, 4th, 8th ... time. They also behave as the
+cart does there, so the run goes on the way the console's would. A new core adds a name to `TrapCore` and calls
+`coreTrap(core, kind, text)` with the same kinds. `scripts/cd32x-pce-trap-test.py <dracx|gotx> <out dir>` makes a
+launcher (no game data) that starts the engine and then reads and writes bank 20: both chip 1 traps must print.
+
+**What ares cannot trap** (each has cost console runs):
+- **A USB read of the cart's memory during a run** (`edlink memrd` of SRAM or PSRAM). It takes the chip from the console
+  (krikzz's `mem_ctrl`) and the game stops. Only the mapper's page, `0x1830000`, is safe to read while the game runs.
+  Dracula X v14-v25 and Gate of Thunder runs 1-8 were spent on it (Dracula X docs/177-178, Gate of Thunder docs/49).
+  ares has no MCU. The core can count MCU accesses in its status page.
+- The SRAM / PSRAM pins' timing, the FPGA's timing margin, and the console bus's clock against the core's. **Never
+  flash a fit that missed timing.**
+- **The picture rate.** ares draws 53-60 pictures a second, where the console drew 14-18 for Gate of Thunder v11.
+- **A command "not waited for".** It can starve on the console: in Gate of Thunder `eng_pad` was skipped whenever the
+  68000 was on a list, which is rare in ares and nearly always on the console (docs/51).
+
+**A new PC Engine CD core, before the console:**
+1. Run it in ares with `ARES_32X_TRAP=1`, its model's `*_BRAM_GARBAGE` (or equivalent), and console timing
+   (`ARES_32X_TIMING=console`). There must be no SH2 FM line and no chip 1 trap.
+2. Give the core a status page at `0x1830000` (frames, PC, flags) and a PC ring. Read only that page over USB while
+   the game runs.
+3. Read Gate of Thunder's `CONSOLE_FINDINGS.md` and Dracula X's docs/175 and 178.
+
+A green ares run with no trap is still not a console pass.
+
+## 7. For the next AI
 
 - Read Rayman's `README_FOR_AI.md` and `fpga/README.md`, and U-R-R's `cartridge/fpga` notes, before writing any RTL.
 - Start from Rayman's `map_rayfx.sv` (the wrapper) and its two memory channels; put your engine behind them.

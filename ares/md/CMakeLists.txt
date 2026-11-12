@@ -236,3 +236,12 @@ set(_dracx_src ${_dracx}/dxm.c ${_dracx}/huc_rt.c ${_dracx}/interp.c ${_dracx}/v
 target_sources(ares PRIVATE ${_dracx_src})
 set_source_files_properties(${_dracx_src} TARGET_DIRECTORY ares PROPERTIES LANGUAGE CXX
     COMPILE_DEFINITIONS TRACECHECK SKIP_UNITY_BUILD_INCLUSION ON)
+
+# Gate of Thunder CD32X (docs/37): the Mega EverDrive PRO's 'gotx' model - the same machine with GoT's timer
+# (tools/m2host/gotm.c), each file through a wrapper that puts it in namespace gotx (its models share dracx's names)
+set(_gotx ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/gotx)
+set(_gotx_src ${_gotx}/gx_gotm.cpp ${_gotx}/gx_huc_rt.cpp ${_gotx}/gx_interp.cpp ${_gotx}/gx_vdc_model.cpp ${_gotx}/gx_vdc_timing.cpp
+    ${_gotx}/gx_io_model.cpp ${_gotx}/gx_scsi_model.cpp)
+target_sources(ares PRIVATE ${_gotx_src})
+set_source_files_properties(${_gotx_src} TARGET_DIRECTORY ares PROPERTIES
+    COMPILE_DEFINITIONS TRACECHECK SKIP_UNITY_BUILD_INCLUSION ON)

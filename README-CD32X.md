@@ -102,7 +102,7 @@ it models what the configuration is.
 | none | the built-in SSF mapper, as before |
 | krikzz's `map_ssf` (sha256 `00bb72f4...`; also what Quartus 25.1 Lite builds from his sources, byte for byte) | the SSF mapper - the same run, picture for picture (checked: Metal Slug v46, frame 2400 identical with and without it) |
 | krikzz's `map_smd`, `map_smd_cd`, `map_svp`, `map_mcd`, `SE` | recognised, not modelled: a warning, and ares runs the SSF mapper (the console would run that file) |
-| one of our own, with a `mega-pro.rbf.ares` beside it (one line: the model's name) | that model, when this build has it; otherwise the warning. Models so far: `ssf` |
+| one of our own, with a `mega-pro.rbf.ares` beside it (one line: the model's name) | that model, when this build has it; otherwise the warning. Models so far: `ssf`, `dracx` (Dracula X CD32X), `gotx` (Gate of Thunder CD32X) |
 | anything else | the warning; the SSF mapper |
 
 The log says what it found: `[EverDrive PRO] mega-pro.rbf: krikzz map_ssf (the extended SSF mapper) (sha256
@@ -150,6 +150,15 @@ chip, nothing waits, nothing is told. `ARES_EDP_USB` shows what a game does when
 renderer core counts the MCU's accesses of the cart's memory while it is on (`fpga/orfx`, debug registers 80-95, word
 15 bits 11-0; `or_poll.py` prints "MCU MEMORY ACCESSES" when any). The rule for every kit: **during a run the USB side
 reads only the status page (0x1830000), never 0x0000000-0x17FFFFF.**
+
+**PC Engine CD cores: `dracx` and `gotx` (12 Nov 2026).** Dracula X CD32X (MicroNut99/DraculaX_32X) and Gate of
+Thunder CD32X (MicroNut99/Gate-of-Thunder_CD32X) run a whole PC Engine CD on the cart. Both boot and play on the
+console. ares models each with the port's own C machine (`ares/md/cartridge/board/dracx/`, `gotx/`), chosen by a
+`mega-pro.rbf.ares` naming it. Their **error traps** print `[dracx TRAP]` / `[gotx TRAP]` when a run does what the
+console's cart would not serve, and `ARES_32X_TRAP=1` prints the 32X accesses the console makes an SH2 wait for.
+The list, what ares still cannot show, and the checks for a new PC Engine CD core are in
+[README-FPGA-FINDINGS.md](README-FPGA-FINDINGS.md) section 6. `scripts/cd32x-pce-trap-test.py` makes a launcher that
+fires the chip 1 traps (no game data).
 
 **U-R-R's engine (in main since v1.7; engine version 3 since v1.8).** U-R-R (MicroNut99/rev32xcd, `cartridge/`) is a plain 32X cartridge
 ROM, not a launcher: its `mega-pro.rbf` is krikzz's `map_smd` plus U-R-R's engine, which answers reads of
