@@ -107,7 +107,7 @@ struct EverDrivePro : Interface {
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
   };
-  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx"};    //the models this board has (more as cores are added)
+  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "rrfx"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -144,6 +144,17 @@ struct EverDrivePro : Interface {
   //its FPGA was proven against (board/dracx: the cart's C models, equal to Mednafen from power-on): the cart's thread
   //runs it at the PC Engine's master clock, and an access to those banks brings it to the accessing CPU's time first.
   //Not modelled: the engine's holds of the master clock for its own memories (no time in the game's), the save state.
+  //Road Rash CD32X's renderer core (MicroNut99/RoadRash32X_CD32X fpga/rrfx; rrfx/rrfx_board.h): map_ssf with a renderer
+  //that answers cart 0x380000-0x3DFFFF once its key is read and reads the game's data from both PSRAMs.
+  bool rrfx = false;                        //rbfModel == "rrfx"
+  RrFx rfx;
+  u32 rrV = 0; u64 rrLines = 0;             //the model's time: the VDP's lines counted (63.6 us each, NTSC)
+  auto rrNowUs() -> u64 {
+    u32 v = vdp.vcounter();
+    u32 d = (v - rrV) & 511; if(d > 100) d = 1;
+    rrLines += d; rrV = v;
+    return rrLines * 63556 / 1000;
+  }
   bool dracx = false;                       //rbfModel == "dracx"
   struct Dx {
     bool on = false;                        //started (the read of + 0x40080)
@@ -446,6 +457,7 @@ struct EverDrivePro : Interface {
   auto load() -> void override {
     identifyRbf();
     dracx = rbfModel == "dracx";
+    rrfx = rbfModel == "rrfx";
     gotx = rbfModel == "gotx";
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
@@ -516,6 +528,10 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(rrfx) {
+      u32 local = (n22)address; u16 v;
+      if(rfx.read(local, v, rrNowUs(), [&](u32 a) -> u16 { return (u16)ram[a >> 1]; })) return v;
+    }
     if(gotx) {
       u32 off = (word & 0x3ffff) << 1; n16 v;
       if(word >> 18 == GxBank && gxRead(off, v)) return v;
@@ -638,7 +654,8 @@ struct EverDrivePro : Interface {
 
   auto power(bool reset) -> void override {
     dx = {};   //(dracx: the engine at its reset until the start read)
-    gx = {};   //(gotx: the same; off at the console's reset too, docs/36)
+    gx = {};
+    rfx.reset(reset);   //(rrfx: off until its key)   //(gotx: the same; off at the console's reset too, docs/36)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
