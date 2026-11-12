@@ -76,7 +76,7 @@ typedef struct {
     uint32_t sel_a;
     /* counts for the time estimate (orfx_cycles), the last frame */
     struct { uint32_t road_words, tile_words, map_words, spr_scan, spr_lines, spr_words, spr_nibbles, spr_pixels,
-             new_colours, hash_probes; } n;
+             new_colours, hash_probes, spr_line_max; } n;   /* spr_line_max: the most words one sprite line read */
 } orfx_t;
 
 void     orfx_init(orfx_t* f, const uint8_t* sprites, const uint8_t* tiles, const uint8_t* road);

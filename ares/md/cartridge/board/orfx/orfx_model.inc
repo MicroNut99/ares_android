@@ -219,13 +219,14 @@ static void sprites(orfx_t* f, int y, uint16_t* lb)
         uint32_t laddr = addr + pitch * ((uint32_t)k * vzoom >> 9);
         const uint8_t* bankp = f->gfx_sprites + (uint32_t)bank * 0x40000;
         uint16_t cur = (uint16_t)(flip ? laddr + 1 : laddr - 1);
-        uint32_t xacc = 0;
+        uint32_t xacc = 0, lw = 0;
         int x = xpos;
         while ((xdelta > 0 && x < W) || (xdelta < 0 && x >= 0))
         {
             cur = (uint16_t)(flip ? cur - 1 : cur + 1);
             uint32_t px = be32(bankp + (uint32_t)cur * 4);
             f->n.spr_words++;
+            if (++lw > f->n.spr_line_max) f->n.spr_line_max = lw;
             for (int i = 0; i < 8; i++)
             {
                 uint32_t pix = (px >> (flip ? 4 * i : 28 - 4 * i)) & 0xf;
