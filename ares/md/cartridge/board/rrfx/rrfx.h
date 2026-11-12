@@ -60,6 +60,7 @@ enum {                                          /* RRFX_M_REG: the frame (16-bit
     RRFX_R_COL_GRASS,                           /* level ground << 8 | far ground under the horizon picture */
     RRFX_R_COL_SIDE,                            /* shoulder << 8 | guard rail */
     RRFX_R_THINGS,                              /* how many of RRFX_M_THING are used */
+    RRFX_R_MODE,                                /* bit 0: the core's SRAM accesses back to back (faster; the picture is the same) */
     RRFX_R_COUNT = 32
 };
 /* RRFX_M_THING: what stands on the road (riders, vehicles), far to near, 8 words each:
@@ -70,7 +71,7 @@ enum {                                          /* RRFX_M_REG: the frame (16-bit
 
 enum { RRFX_W = 320, RRFX_H = 176, RRFX_SLICES = 33, RRFX_HORIZON = 80, RRFX_FAR = 14,
        RRFX_HZ_W = 360, RRFX_HZ_ROW0 = 10, RRFX_HZ_ROWS = 92 };
-/* status (word 2): bit 0 busy, bit 2 the key taken, bit 3 run-length pictures, bit 4 the buffer shown,
+/* status (word 2): bit 0 busy, bit 2 the key taken, bit 3 run-length pictures, bit 4 the buffer shown, bit 5 the SRAM's fast way,
    bit 9 the unit since the last SYNC failed, bit 10 it had a gap */
 
 typedef struct {
