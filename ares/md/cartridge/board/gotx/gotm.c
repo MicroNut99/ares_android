@@ -32,6 +32,7 @@ static int hold_start;                                         /* a stop before 
 static void stamp_vram(unsigned a) { stamp[(a >> 6) & 1023] = (uint16_t)frame; }
 /* the running instruction (as trace_main.c): its opcode, start time, base cycles, accesses so far, wait so far */
 static int64_t t_ins; static int cur_op, cur_base, cur_acc, prev_set, cur_u = 12, cpu_speed, bm_done, irq_done, prev_i_gate = -1, started;
+static uint16_t pc_ring[512]; static unsigned pc_next;
 static uint8_t cur_p; static uint16_t cur_pc; static int64_t cur_wait;
 static int32_t ws_counter;
 static int cond_true(int k, uint8_t p);
@@ -261,6 +262,7 @@ start:
       if (frame == itf) printf("i %04X %02X %02X %02X %02X %02X t %lld\n", pc, c->A, c->X, c->Y, c->S, c->P, (long long)t_ins); }
     const uint8_t op = RD_(c, pc), k = huc_class[op];
     prev_i_gate = (k & OC_IGATE) ? (c->P & IF) != 0 : -1;
+    pc_ring[pc_next++ & 511] = pc;                       /* (GoT docs/45: the last 512 instruction PCs, as the cart's ring) */
     cur_op = op; cur_pc = pc; cur_p = c->P; cur_acc = 0; cur_wait = 0; cur_u = cpu_speed ? 3 : 12; bm_done = 0;
     cur_base = huc_cycles[op] + ((k & OC_DEC) && (c->P & DF) ? 1 : 0) + (prev_set && (k & OC_T) ? 3 : 0);
     if (k & OC_BLK) { const unsigned len = RD_(c, (uint16_t)(pc + 5)) | RD_(c, (uint16_t)(pc + 6)) << 8; cur_base += 6 * (int)(len ? len : 65536); }
@@ -353,6 +355,7 @@ static void run(void)
 long gotm_run_frames(long n) { frames_to = frame + n; until = -1; run(); return frame; }
 int64_t gotm_run_until(int64_t t) { frames_to = 0x7FFFFFFF; until = t; run(); until = -1; return t_ins; }
 int64_t gotm_now(void) { return t_ins; }
+const uint16_t *gotm_pcs(unsigned *next) { *next = pc_next & 511; return pc_ring; }
 long gotm_frame(void) { return frame; }
 
 static uint32_t fnv(uint32_t h, const uint8_t *p, long n) { while (n--) { h ^= *p++; h *= 16777619u; } return h; }

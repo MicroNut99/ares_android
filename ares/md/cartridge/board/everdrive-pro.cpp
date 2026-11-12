@@ -174,7 +174,18 @@ struct EverDrivePro : Interface {
     u8 pad = 0;
     u32 tab[3 + 6 * 101] = {};
     std::vector<u8> rom;                    //the System Card, from bank 27 at the start
+    bool autorun = false, asked = false, live = false, fell = false; s32 want0 = 0;   //(GoT docs/41, 45: the key 'GTAR', the traps)
   } gx;
+  //GoT docs/45: error traps - what the console's cart does differently from a plain emulation, modelled as the core does it
+  //and printed once each ("[gotx TRAP] ..."), so an ares run shows the console's failure modes: the console reading or
+  //writing PSRAM chip 1 after the start (the engine owns it: step 17+), SELECT asked (never given: step 16+), the PC Engine
+  //CPU running in the I/O page (the cart's ring stops there: the last 64 PCs printed), the backup RAM (GOTX_BRAM_GARBAGE=1:
+  //uninitialised, as the cart's sram is - ares's default is Mednafen's formatted blank one)
+  inline static u64 gxTrapN[8] = {};
+  auto gxTrap(u32 kind, const string& what) -> void {
+    if(gxTrapN[kind]++ == 0) print("[gotx TRAP] ", what, "\n");
+    else if((gxTrapN[kind] & (gxTrapN[kind] - 1)) == 0) print("[gotx TRAP] (x", gxTrapN[kind], ") ", what, "\n");
+  }
   static constexpr u32 GxBank = 26, GxDataBank = 16, GxScBank = 27, GxLba0 = 3590, GxSectors = 1882, GxPageSectors = 992;
 
   auto frequency() -> u32 override { return dracx || gotx ? MasterClock : Interface::frequency(); }
@@ -186,6 +197,15 @@ struct EverDrivePro : Interface {
       if(!gx.on) return step(256);
       if(getenv("GOTX_TRACE")) { static u64 n; if(++n % 83'000 == 0) print("[gotx] machine frame ", gotm_frame(), " time ", (s64)gotm_now(), " drive next ", gotm_drive_next(), " missed ", gotm_missed(), " pad reads ", gxPadReads, " pad ", hex(gx.pad, 2L), "\n"); }
       s64 t0 = gotm_now(), t = gotm_run_until(t0 + 256);
+      {   //(docs/45: the CPU in the I/O page - the cart's ring stands there; not the reset's own first PCs)
+        unsigned nx; const u16* pcs = gotm_pcs(&nx); u16 pc = pcs[(nx + 511) & 511];
+        if(pc >= 0x2000) gx.live = true;
+        else if(gx.live && !gx.fell) {
+          gx.fell = true; string l = {"the PC Engine CPU runs at PC ", hex(pc, 4L), " (the I/O page) at machine frame ", gotm_frame(), "; the last 64 PCs:"};
+          for(u32 i : range(64)) l.append(" ", hex(pcs[(nx + 448 + i) & 511], 4L));
+          gxTrap(2, l);
+        }
+      }
       return step(t <= t0 ? 256 : (u32)(t - t0));
     }
     if(!dracx) return Interface::main();
@@ -325,8 +345,12 @@ struct EverDrivePro : Interface {
   //GOTX_MASKS / GOTX_HASHES / GOTX_BRAM: as DRACX_* (a recording's pad from power-on, each frame's gotm_hash, the backup RAM)
   inline static std::vector<u16> gxMasks;
   inline static FILE* gxHashes = nullptr;
-  static auto gxFrame(void*, long k) -> void {
+  static auto gxFrame(void* user, long k) -> void {
     if(gxHashes) { fprintf(gxHashes, "frame %ld hash %08x\n", k, gotm_hash(0)); fflush(gxHashes); }
+    if(auto* e = (EverDrivePro*)user; e && e->gx.autorun && gxMasks.empty()) {   //(GoT docs/41: RUN 16 frames in every 512 until the drive is asked)
+      if(gotm_drive_next() != e->gx.want0) e->gx.asked = true;
+      gotm_pad_now(e->gx.pad | (!e->gx.asked && ((k + 1) & 0x1f0) == 0x180 ? 0x08 : 0x00));
+    }
     if(!gxMasks.empty()) gotm_pad(k + 1 < (long)gxMasks.size() ? gxMasks[k + 1] : 0);
     if(auto p = getenv("GOTX_POKE")) { unsigned a, v; if(sscanf(p, "%x,%x", &a, &v) == 2) gotm_base_ram()[a & 0x1fff] = (u8)v; }   //(the recordings' lives poke)
   }
@@ -350,6 +374,9 @@ struct EverDrivePro : Interface {
     }
     std::vector<u8> bram;   //(the cart: Mednafen's blank one - gotm_power(NULL); its port is an open contract item, docs/36)
     if(auto p = getenv("GOTX_BRAM")) if(FILE* f = fopen(p, "rb")) { bram.resize(2048); if(fread(bram.data(), 1, 2048, f) != 2048) bram.clear(); fclose(f); }
+    if(getenv("GOTX_BRAM_GARBAGE")) { bram.resize(2048); for(u32 n : range(2048)) bram[n] = n & 1 ? 0x0f : 0xff;   //(docs/45: the console's read 0x0FFF)
+      gxTrap(4, "backup RAM uninitialised (GOTX_BRAM_GARBAGE), as the cart's sram"); }
+    else if(bram.empty()) gxTrap(4, "backup RAM: Mednafen's formatted blank one - the cart's is uninitialised sram (GOTX_BRAM_GARBAGE=1 models it)");
     if(!gotm_power(gx.rom.data(), bram.empty() ? nullptr : bram.data(), (const s32*)gx.tab, gxSector, this)) {
       print("[EverDrive PRO] gotx: the disc's table from the load port was not taken\n"); return;
     }
@@ -357,7 +384,8 @@ struct EverDrivePro : Interface {
     if(auto p = getenv("GOTX_MASKS")) if(FILE* f = fopen(p, "rb")) { u16 m; while(fread(&m, 2, 1, f) == 1) gxMasks.push_back(m); fclose(f);
       print("[EverDrive PRO] gotx: the pad from ", p, " (", gxMasks.size(), " frames)\n"); }
     if(auto p = getenv("GOTX_HASHES")) gxHashes = fopen(p, "w");
-    gotm_on_frame(gxFrame, nullptr);
+    gotm_on_frame(gxFrame, this);
+    gx.want0 = gotm_drive_next();
     if(gxMasks.empty()) gotm_pad_now(gx.pad);
     gx.on = true;
     print("[EverDrive PRO] gotx: the engine started (tracks ", gx.tab[0], "-", gx.tab[1], ", lead-out ", (s32)gx.tab[2], ")\n");
@@ -366,7 +394,9 @@ struct EverDrivePro : Interface {
   auto gxRead(u32 off, n16& value) -> bool {
     if(off >= 0x48000 && off < 0x49000) {   //(map_got: 0 until the start)
       gxPadReads++;
-      if(gx.on) { u8 p = off >> 4; if(p != gx.pad && getenv("GOTX_TRACE")) print("[gotx] pad ", hex(p, 2L), " at machine frame ", gotm_frame(), "\n");
+      if(gx.on) { u8 p = off >> 4;
+        if(p & 0x04) { gxTrap(3, "SELECT asked by the SH2: the cart never gives it (RUN + SELECT is the PC Engine's reset; step 16+)"); p &= 0xfb; }
+        if(p != gx.pad && getenv("GOTX_TRACE")) print("[gotx] pad ", hex(p, 2L), " at machine frame ", gotm_frame(), "\n");
         gx.pad = p; if(gxMasks.empty()) gotm_pad_now(gx.pad); }
       return false;
     }
@@ -397,7 +427,10 @@ struct EverDrivePro : Interface {
   auto gxWrite(u32 off, n1 upper, n1 lower, n16 data) -> void {
     if(off < 0x41000 || off >= 0x41400) return;   //the load port (the bank's memory written too, as on the cart)
     if(!(off & 2)) gx.cfgHi = data;
-    else if((off >> 2 & 0xff) == 0xff) gx.armed = (gx.cfgHi << 16 | data) == 0x47544f4e;   //'GTON'
+    else if((off >> 2 & 0xff) == 0xff) {   //'GTON', or 'GTAR' (GoT docs/41: the core presses RUN itself)
+      gx.armed = (gx.cfgHi << 16 | data) == 0x47544f4e || (gx.cfgHi << 16 | data) == 0x47544152;
+      gx.autorun = (gx.cfgHi << 16 | data) == 0x47544152;
+    }
     else gx.cfg[off >> 2 & 0xff] = gx.cfgHi << 16 | data;
   }
 
@@ -477,6 +510,10 @@ struct EverDrivePro : Interface {
     if(gotx) {
       u32 off = (word & 0x3ffff) << 1; n16 v;
       if(word >> 18 == GxBank && gxRead(off, v)) return v;
+      if(gx.on && word >> 18 >= 16 && word >> 18 <= 30 && word >> 18 != GxBank) {   //(docs/44-45: chip 1 the engine's once started)
+        gxTrap(0, {"the console read PSRAM chip 1 (bank ", word >> 18, ", +", hex((word & 0x3ffff) << 1, 5L), ") after the start: on the cart the engine owns it - read as 0xFFFF"});
+        return 0xffff;
+      }
     }
     if(dracx && dx.armed) {   //(DraculaX docs/124, the core's step 21: map_ssf's until the key, as the cores that work on the console)
       u32 b = word >> 18, off = (word & 0x3ffff) << 1; n16 v;
@@ -500,6 +537,10 @@ struct EverDrivePro : Interface {
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
     if(gotx && offset(address) >> 19 == GxBank) gxWrite((offset(address) & 0x7ffff), upper, lower, data);   //(map_got takes any write there, docs/36)
+    if(gotx && gx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != GxBank) {
+      gxTrap(1, {"the console wrote PSRAM chip 1 (bank ", offset(address) >> 19, ") after the start: on the cart the engine owns it - write lost"});
+      return;
+    }
     if(!writeEnable || writeProtect) return;
     u32 word = offset(address) >> 1;
     if(dracx && word >> 18 == bank[7]) dxWrite7((word & 0x3ffff) << 1, upper, lower, data);   //(the bank's memory too)

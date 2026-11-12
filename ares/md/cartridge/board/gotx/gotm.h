@@ -41,6 +41,7 @@ const uint16_t *gotm_snapshot(void);         /* at the last frame's end: BXR, BY
 long gotm_run_frames(long n);                /* run n more frames (to their ends); returns the frames run since power-on */
 int64_t gotm_run_until(int64_t t);           /* run to the first instruction boundary at or after time t; returns it */
 int64_t gotm_now(void);                      /* the time of the next instruction's start */
+const uint16_t *gotm_pcs(unsigned *next);    /* GoT docs/45: the last 512 instruction PCs; *next = the oldest's index (the cart's ring, for the ares traps) */
 long gotm_frame(void);                       /* frames ended since power-on */
 uint32_t gotm_hash(int with_stack);          /* tools/m3rt rt_hash: RAM, VRAM, sprite table, colours */
 void gotm_md5(uint8_t md[16]);               /* tools/m0_replay.py frame_hash's md5 (needs openssl: GOTM_MD5) */
