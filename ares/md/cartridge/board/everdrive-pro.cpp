@@ -170,7 +170,7 @@ struct EverDrivePro : Interface {
       static u64 n; if(++n % 83'000 == 0) print("[dracx] machine frame ", dxm_frame(), " time ", (s64)dxm_now(), " waiting ", dxm_waiting(),
         " drive next ", dxm_drive_next(), " spare ", dx.full ? (s32)dx.have : -1, " missed ", dxm_missed(),
         " psg ctl ", hex(dxm_psg()[4], 2L), " ", hex(dxm_psg()[12], 2L), " ", hex(dxm_psg()[20], 2L), " ", hex(dxm_psg()[28], 2L), " ", hex(dxm_psg()[36], 2L), " ", hex(dxm_psg()[44], 2L),
-        " f0 ", hex(dxm_psg()[3] << 8 | dxm_psg()[2], 3L), " bal ", hex(dxm_psg()[49], 2L), "\n");   //(DraculaX docs/185)
+        " f0 ", hex(dxm_psg()[3] << 8 | dxm_psg()[2], 3L), " bal ", hex(dxm_psg()[49], 2L), " nz ", hex(dxm_psg()[39], 2L), " ", hex(dxm_psg()[47], 2L), " dda ", (u64)dxm_psg_dda(), "\n");   //(DraculaX docs/185)
     }
     s64 t0 = dxm_now(), t = dxm_run_until(t0 + 256);
     step(dxm_waiting() || t <= t0 ? 256 : (u32)(t - t0));

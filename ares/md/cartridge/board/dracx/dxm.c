@@ -275,6 +275,7 @@ int32_t dxm_drive_next(void) { return hw.scsi.have ? (int32_t)hw.scsi.sector_add
 uint32_t dxm_audio(void) { return (hw.cdda_status == 1 ? 1u << 31 : 0) | (uint32_t)(hw.play_mode & 3) << 24 | (hw.read_sec_start & 0x1FFFFF); }
 const uint16_t *dxm_stamps(void) { return stamp; }
 const uint8_t *dxm_psg(void) { return io_psg(); }   /* docs/185 */
+unsigned long dxm_psg_dda(void) { return io_psg_dda(); }
 const uint16_t *dxm_snapshot(void) { return snap; }
 void dxm_on_frame(void (*fn)(void *, long), void *user) { frame_fn = fn; frame_user = user; }
 static void run(void)
