@@ -142,11 +142,12 @@ struct OrFx {
       return true;
     }
     if(local < ORFX_PIC_PAL + 0x200) { v = f->slotpal[shown()][(local - ORFX_PIC_PAL) >> 1]; return true; }
+    if(local >= ORFX_PIC_LT && local < ORFX_PIC_LT + 0x200) { v = f->lt[shown()][(local - ORFX_PIC_LT) >> 1]; return true; }   //(a run-length picture's lines)
     if(local >= ORFX_STATUS && local < ORFX_STATUS + 0x20) {
       switch((local - ORFX_STATUS) >> 1) {
       case 0: v = 0x4f52; break;
       case 1: v = 0x4658; break;
-      case 2: v = (busy(us) ? 1 : 0) | 4 | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;
+      case 2: v = (busy(us) ? 1 : 0) | 4 | 8 | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures)
       case 3: v = f->frames; break;
       case 4: v = lastTime20; break;
       case 5: v = f->slots[shown()]; break;

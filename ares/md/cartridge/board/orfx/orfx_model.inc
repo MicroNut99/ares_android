@@ -134,7 +134,7 @@ void orfx_word(orfx_t* f, uint16_t w)
         case ORFX_OP_SELECT: f->sel_m = -2 - (w & 7); break;
         case ORFX_OP_DATA:   f->data_left = w & 0xfff; break;
         case ORFX_OP_GO:                            /* only straight after a right CHECK */
-            if (f->go_ok) orfx_draw(f, w & 1, f->line13);
+            if (f->go_ok) orfx_draw(f, w & 3, f->line13);
             else fail(f);
             f->go_ok = 0;
             break;
@@ -337,6 +337,7 @@ void orfx_draw(orfx_t* f, int buf, uint16_t* line13)
     static uint8_t hash[512];                   /* 32X colour -> slot */
     uint16_t lb[W];
     int next = ORFX_SLOT_FIRST;
+    const int rle = (buf >> 1) & 1;
     buf &= 1;
     memset(map, 0, sizeof(map));
     memset(hash, 0, sizeof(hash));
@@ -381,6 +382,30 @@ void orfx_draw(orfx_t* f, int buf, uint16_t* line13)
         }
     }
     f->slots[buf] = next - ORFX_SLOT_FIRST;
+    memcpy(f->rawpic, f->pic[buf], sizeof(f->rawpic));
+    memset(f->lt[buf], 0, sizeof(f->lt[buf]));
+    if (rle)                                    /* the same picture as runs: (pixels - 1) << 8 | slot */
+    {
+        static uint16_t w[ORFX_RLE_MAX];
+        uint32_t n = 0;
+        int ovf = 0;
+        for (int y = 0; y < H; y++)
+        {
+            const uint8_t* l = f->rawpic + y * W;
+            f->lt[buf][y] = (uint16_t)n;
+            for (int x = 0; x < W; )
+            {
+                int e = x + 1;
+                while (e < W && l[e] == l[x] && e - x < 256) e++;
+                if (n < ORFX_RLE_MAX) w[n++] = (uint16_t)((e - x - 1) << 8 | l[x]); else ovf = 1;
+                x = e;
+            }
+        }
+        f->lt[buf][224] = (uint16_t)n;
+        f->lt[buf][225] = (uint16_t)(1 | ovf << 1);
+        for (uint32_t i = 0; i < n; i++) { f->pic[buf][2 * i] = (uint8_t)(w[i] >> 8); f->pic[buf][2 * i + 1] = (uint8_t)w[i]; }
+    }
+    else f->lt[buf][224] = ORFX_RLE_MAX;        /* (bytes / 2; flags 0) */
     f->frames++;
 }
 
