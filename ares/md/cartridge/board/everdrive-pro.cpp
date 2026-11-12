@@ -176,16 +176,25 @@ struct EverDrivePro : Interface {
     std::vector<u8> rom;                    //the System Card, from bank 27 at the start
     bool autorun = false, asked = false, live = false, fell = false; s32 want0 = 0;   //(GoT docs/41, 45: the key 'GTAR', the traps)
   } gx;
-  //GoT docs/45: error traps - what the console's cart does differently from a plain emulation, modelled as the core does it
-  //and printed once each ("[gotx TRAP] ..."), so an ares run shows the console's failure modes: the console reading or
-  //writing PSRAM chip 1 after the start (the engine owns it: step 17+), SELECT asked (never given: step 16+), the PC Engine
-  //CPU running in the I/O page (the cart's ring stops there: the last 64 PCs printed), the backup RAM (GOTX_BRAM_GARBAGE=1:
-  //uninitialised, as the cart's sram is - ares's default is Mednafen's formatted blank one)
-  inline static u64 gxTrapN[8] = {};
-  auto gxTrap(u32 kind, const string& what) -> void {
-    if(gxTrapN[kind]++ == 0) print("[gotx TRAP] ", what, "\n");
-    else if((gxTrapN[kind] & (gxTrapN[kind] - 1)) == 0) print("[gotx TRAP] (x", gxTrapN[kind], ") ", what, "\n");
+  //Error traps of the PC Engine CD cart cores (Dracula X CD32X docs/175-178, Gate of Thunder CD32X docs/45 and its
+  //CONSOLE_FINDINGS.md; README-CD32X "Error traps"): what the console's cart does differently from a plain emulation,
+  //modelled as the core does it and printed - "[<core> TRAP] ..." the first time, then at the 2nd, 4th, 8th ... time - so an
+  //ares run shows the console's failure modes.  The PC Engine CD cores share them (both give PSRAM chip 1 to the engine
+  //once it runs); a new core gets a row in TrapCore and uses the same kinds.
+  //  kind 0/1: the console reads / writes PSRAM chip 1 (banks 16-30) after the start, outside the core's own windows
+  //  kind 2: the PC Engine CPU runs in the I/O page (below $2000) after having run above it (gotx: the last 64 PCs)
+  //  kind 3: SELECT asked by the SH2 (the cores never give it: RUN + SELECT is the PC Engine's soft reset)
+  //  kind 4: the backup RAM differs from the cart's (the cart's sram is uninitialised)
+  enum TrapCore : u32 { TrapDracx, TrapGotx, TrapCores };
+  inline static u64 trapN[TrapCores][8] = {};
+  static auto coreTrap(u32 core, u32 kind, const string& what) -> void {
+    static const char* names[TrapCores] = {"dracx", "gotx"};
+    u64 n = ++trapN[core][kind & 7];
+    if(n == 1) print("[", names[core], " TRAP] ", what, "\n");
+    else if((n & (n - 1)) == 0) print("[", names[core], " TRAP] (x", n, ") ", what, "\n");
   }
+  auto gxTrap(u32 kind, const string& what) -> void { coreTrap(TrapGotx, kind, what); }
+  auto dxTrap(u32 kind, const string& what) -> void { coreTrap(TrapDracx, kind, what); }
   static constexpr u32 GxBank = 26, GxDataBank = 16, GxScBank = 27, GxLba0 = 3590, GxSectors = 1882, GxPageSectors = 992;
 
   auto frequency() -> u32 override { return dracx || gotx ? MasterClock : Interface::frequency(); }
@@ -521,7 +530,10 @@ struct EverDrivePro : Interface {
       if(b == bank[6] && dxRead6(off, v)) return v;
       //(DraculaX docs/171: map_ssf_dx gives chip 1 - banks 16-30 - to the engine once it is started: the System
       //Card is read there.  The console's reads of those banks then get whatever the engine is reading: not theirs)
-      if(dx.on && b >= 16 && b <= 30) return (n16)(0xdead ^ word);
+      if(dx.on && b >= 16 && b <= 30) {
+        dxTrap(0, {"the console read PSRAM chip 1 (bank ", b, ", +", hex(off, 5L), ") after the start: on the cart the engine owns it - read as the engine's bus (0xDEAD ^ word here)"});
+        return (n16)(0xdead ^ word);
+      }
     }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
@@ -540,6 +552,13 @@ struct EverDrivePro : Interface {
     if(gotx && gx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != GxBank) {
       gxTrap(1, {"the console wrote PSRAM chip 1 (bank ", offset(address) >> 19, ") after the start: on the cart the engine owns it - write lost"});
       return;
+    }
+    if(dracx && dx.on) {   //(DraculaX docs/171: chip 1 the engine's once started; its windows 6 and 7 still the core's)
+      u32 b = offset(address) >> 19;
+      if(b >= 16 && b <= 30 && b != bank[6] && b != bank[7]) {
+        dxTrap(1, {"the console wrote PSRAM chip 1 (bank ", b, ") after the start: on the cart the engine owns it - write lost"});
+        return;
+      }
     }
     if(!writeEnable || writeProtect) return;
     u32 word = offset(address) >> 1;
