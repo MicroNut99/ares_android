@@ -30,8 +30,8 @@
 //      gfx=1   one bit of the core's copy of the graphics is wrong from the start (its PSRAM): a V11 disc compares
 //              the core's sum with its own before the first picture (GFX <the core's>/<the game's>)
 //
-//  ARES_ORFX_KIT   = 12: the core as kit 12 had it - no SUM (status bit 6 clear, words 16-18 zero; a SUM word is a
-//                    BAD_OP trap: a game must not send one to a core that does not say it can); 11: nor the
+//  ARES_ORFX_KIT   = 12: the core as kit 12 had it - no SUM (status bit 6 clear, words 16-18 zero: a SUM asked for
+//                    is not seen to be made); 11: nor the
 //                    picture's sum (bit 5); 10: nor run-length pictures (bit 3) - what a disc meets when an old
 //                    mega-pro.rbf is still on the SD card (OutRun's console run of 13 Nov: PL35840, no K)
 //
@@ -235,7 +235,7 @@ struct OrFx {
       u16 w = a ^ (u16)(f->q_key + ORFX_KEY_STEP);
       if(!f->data_left && f->sel_m >= -1) {
         u32 op = w >> 12;
-        if(op > 7 || (op == 7 && t.kit < 13)) t.trap(OrFxTraps::BAD_OP, f->frames, us, "command %04x", w);
+        if(op > 7) t.trap(OrFxTraps::BAD_OP, f->frames, us, "command %04x", w);   //(a SUM to an older core: nothing happens there - its RTL takes the word as a NOP; OutRun's V14 asks once to see which core answers)
         if(op == 7 && (w & 0xfff) > ORFX_SUM_GFX) t.trap(OrFxTraps::BAD_OP, f->frames, us, "SUM of memory %u", w & 0xfff);
         if(op == 1 && (w & 7) > 5) t.trap(OrFxTraps::BAD_OP, f->frames, us, "SELECT of memory %u", w & 7);
         if(op == 2) {
