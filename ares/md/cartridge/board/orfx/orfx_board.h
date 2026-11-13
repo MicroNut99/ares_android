@@ -31,7 +31,9 @@
 //              the core's sum with its own before the first picture (GFX <the core's>/<the game's>)
 //
 //  ARES_ORFX_KIT   = 12: the core as kit 12 had it - no SUM (status bit 6 clear, words 16-18 zero; a SUM word is a
-//                    BAD_OP trap: a game must not send one to a core that does not say it can)
+//                    BAD_OP trap: a game must not send one to a core that does not say it can); 11: nor the
+//                    picture's sum (bit 5); 10: nor run-length pictures (bit 3) - what a disc meets when an old
+//                    mega-pro.rbf is still on the SD card (OutRun's console run of 13 Nov: PL35840, no K)
 //
 //All the traps and faults of this build, in one table: README-CD32X.md, "Error traps and injected faults".
 //Traps (the code, what it means, fatal = what "stop" stops on):
@@ -174,7 +176,13 @@ struct OrFx {
       return true;
     }
     if(local < ORFX_PIC_PAL + 0x200) { v = f->slotpal[shown()][(local - ORFX_PIC_PAL) >> 1]; return true; }
-    if(local >= ORFX_PIC_LT && local < ORFX_PIC_LT + 0x200) { v = f->lt[shown()][(local - ORFX_PIC_LT) >> 1]; return true; }   //(a run-length picture's lines; its sum)
+    if(local >= ORFX_PIC_LT && local < ORFX_PIC_LT + 0x200) {   //(a run-length picture's lines; its sum)
+      u32 i = (local - ORFX_PIC_LT) >> 1;
+      v = f->lt[shown()][i];
+      if(t.kit < 12 && i == ORFX_LT_FLAGS) v &= ~(u16)ORFX_LTF_SUM;   //(kit 11 and before: no sum of the picture)
+      if(t.kit < 12 && (i == ORFX_LT_SUM || i == ORFX_LT_SUM + 1)) v = 0;
+      return true;
+    }
     if(local >= ORFX_STATUS && local < ORFX_STATUS + 0x30) {
       switch((local - ORFX_STATUS) >> 1) {
       case 16: v = t.kit >= 13 ? f->sum_q >> 16 : 0; break;      //(kit 13: SUM - the sum, which, how many so far)
@@ -182,7 +190,7 @@ struct OrFx {
       case 18: v = t.kit >= 13 ? (u16)(f->sum_k << 11 | f->n_sum) : 0; break;
       case 0: v = 0x4f52; break;
       case 1: v = 0x4658; break;
-      case 2: v = (busy(us) ? 1 : 0) | 4 | 8 | 0x20 | (t.kit >= 13 ? 0x40 : 0) | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures; bit 5: kit 12 - the picture's sum; bit 6: kit 13 - SUM)
+      case 2: v = (busy(us) ? 1 : 0) | 4 | (t.kit >= 11 ? 8 : 0) | (t.kit >= 12 ? 0x20 : 0) | (t.kit >= 13 ? 0x40 : 0) | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures; bit 5: kit 12 - the picture's sum; bit 6: kit 13 - SUM)
       case 3: v = f->frames; break;
       case 4: v = lastTime20; break;
       case 5: v = f->slots[shown()]; break;
