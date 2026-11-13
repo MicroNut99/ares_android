@@ -38,10 +38,17 @@ auto M32X::VDP::scanline(u32 pixels[1280], u32 y) -> void {
 }
 
 auto M32X::VDP::scanlineMode1(u32 pixels[1280], u32 y) -> void {
+  //ARES_32X_XOFF=<n>: the 32X's picture n pixels to the right of the Mega Drive's (negative: to the left) - a test of
+  //what a console shows at the picture's edges; ARES_32X_HIDE=1: the Mega Drive's picture alone
+  static int xoff = -9999, hide = 0;
+  if(xoff == -9999) { auto e = getenv("ARES_32X_XOFF"); xoff = e ? atoi(e) : 0; hide = getenv("ARES_32X_HIDE") != nullptr; }
+  if(hide) return;
   u16 address = fbram[y];
   for(u32 x : range(320)) {
+    s32 sx = (s32)x + xoff;
+    if(sx < 0 || sx >= 320) continue;
     u8 color = fbram[address + (x + latch.dotshift >> 1) & 0xffff].byte(!(x + latch.dotshift & 1));
-    plot(&pixels[x * 4], cram[color]);
+    plot(&pixels[sx * 4], cram[color]);
   }
 }
 
