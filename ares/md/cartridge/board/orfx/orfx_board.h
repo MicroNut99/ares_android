@@ -52,7 +52,7 @@
 //  STUCK             fatal  a frame over 500 ms (the game's watchdog would give up)
 //  RUNAWAY           fatal  a sprite line read over 1024 words (garbage sprite data: seconds of drawing)
 //  SLOTS                    more than 253 colours in a frame (wrong colours)
-//  ROM1_READ         fatal  the console read banks 16-30 while the core is on (it takes the core's PSRAM away)
+//  ROM1_READ         fatal  the console read banks 16-30 while the core is on (it takes the core's PSRAM away; bank 31 is the battery RAM, not a trap)
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>

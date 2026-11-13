@@ -570,7 +570,8 @@ struct EverDrivePro : Interface {
     if(orfx) {
       u32 local = (n22)address; u16 v;
       if(fx.read(local, v, nowUs(), [&](u32 a) -> u16 { return (u16)ram[a >> 1]; })) return v;
-      if(fx.on && bank[local >> 19] >= 16 && fx.f)            //(the second PSRAM: the core's, while it is on)
+      if(fx.on && bank[local >> 19] >= 16 && bank[local >> 19] != 31 && fx.f)   //(the second PSRAM: the core's, while it is on;
+                                                                            // bank 31 is the battery RAM, map_ssf's mem_ce 2)
         fx.t.trap(OrFxTraps::ROM1_READ, fx.f->frames, nowUs(), "cart 0x%06x is bank %u", local, (u32)bank[local >> 19]);
     }
     if(ordbg) {
