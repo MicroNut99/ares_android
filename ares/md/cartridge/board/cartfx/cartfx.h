@@ -75,7 +75,8 @@
  * bit 2 the buffer shown, bit 3 error (a command dropped, an unknown operation, a sprite past 256, since BEGIN),
  * bits 8-15 the build's ID. Counters (w = n): 1 frames composed, 2 cells in the last frame, 3 sprites in it, 4 its
  * engine time in 64-clock units (1.28 us), 5 PSRAM accesses done again, 6 SRAM accesses done again, 7 words lost
- * (queue full), 8 KEY2 (the version). The model is never busy nor full; its counters 4-6 stay 0.
+ * (queue full), 8 KEY2 (the version), 9 the build's PSRAM read in clocks (5 or 8: psram_t below). The model is never
+ * busy nor full; its counters 4-6 stay 0.
  */
 #ifndef CARTFX_H
 #define CARTFX_H
@@ -170,6 +171,9 @@ typedef struct cfx {
     uint32_t est;                       /* not the engine's: what cfx_core.sv would take for the last GO, in its
                                            50 MHz clocks - an estimate for ares's busy bit, set against the
                                            Verilator runs (sim/: EST=1); the console decides */
+    int      psram_t;                   /* the build's PSRAM read in clocks (cfx_core.sv's PSRAM_T: 5 or 8; a word
+                                           every psram_t + 1): counter 9 and the estimate. Set by the host, kept by
+                                           cfx_reset (0 there: 5) */
 } cfx_t;
 
 void cfx_reset(cfx_t* fx, uint16_t key1, uint8_t id);

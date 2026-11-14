@@ -6,8 +6,10 @@ void cfx_reset(cfx_t* fx, uint16_t key1, uint8_t id) {
     uint8_t (*psram)(void*, uint32_t) = fx->psram;
     uint16_t* sram = fx->sram;
     void* ctx = fx->ctx;
+    int pt = fx->psram_t;
     memset(fx, 0, sizeof(*fx));
     fx->psram = psram; fx->sram = sram; fx->ctx = ctx;
+    fx->psram_t = pt > 0 ? pt : 5;
     fx->key1 = key1; fx->id = id;
     fx->cols = 20; fx->rows = 22;
 }
@@ -72,12 +74,13 @@ static int cfx_layer_pix(cfx_t* fx, const cfx_layer_t* L, int px, int py) {
 }
 
 /* the estimate's share of a layer in a cell (see est in cartfx.h): its set-up, its pixels at the PSRAM's word every
-   6 clocks (3 clocks a pixel at 8 bits, 1.5 at 4), a tile map's spans and the entries read; in half clocks */
+   W = psram_t + 1 clocks (W / 2 clocks a pixel at 8 bits, W / 4 at 4: 3 and 1.5 with the read of 5), a tile map's
+   spans and the entries read; in half clocks */
 static uint32_t cfx_est_layer(const cfx_t* fx, const cfx_layer_t* L, int x0, int y0) {
-    uint32_t h = 2 * 56, px = 0;
+    uint32_t h = 2 * 56, px = 0, W = (uint32_t)fx->psram_t + 1;
     if (!(L->flags & CFX_L_TILES)) {
         if (L->w == 0 || L->h == 0) return 2 * 6;
-        px = 128; h += 2 * 8 * 8;                  /* each row's first word: a jump */
+        px = 128; h += 2 * 8 * (W + 2);            /* each row's first word: a jump */
     } else {
         uint32_t t = L->tile, MW = L->w, MH = L->h, seen[48], ns = 0;
         if (t == 0 || MW == 0 || MH == 0) return 2 * 6;
@@ -91,21 +94,22 @@ static uint32_t cfx_est_layer(const cfx_t* fx, const cfx_layer_t* L, int x0, int
                                                                      fx->psram(fx->ctx, (L->map + 2 * cell + 1) & 0xFFFFFF));
                 int brk = L->brk && (fx->sram[(fx->brk + cell / 16) & 0x3FFFF] >> (cell % 16) & 1);
                 uint32_t k = 0; while (k < ns && seen[k] != cell) k++;
-                if (k == ns) { if (ns < 48) seen[ns++] = cell; h += 2 * ((L->flags & CFX_L_MAPSRAM) ? 9 : 18) + (L->brk ? 2 * 10 : 0); }
+                if (k == ns) { if (ns < 48) seen[ns++] = cell; h += 2 * ((L->flags & CFX_L_MAPSRAM) ? 9 : 2 * W + 6) + (L->brk ? 2 * 10 : 0); }
                 h += 2 * 2;
                 if ((e & 0xFFF) != 0 && !brk) { px += (uint32_t)span; h += 2 * 8; }
                 i += span;
             }
         }
     }
-    return h + px * ((L->flags & CFX_L_4BPP) ? 3u : 6u);
+    return h + ((L->flags & CFX_L_4BPP) ? px * W / 2 : px * W);
 }
 
 static void cfx_compose(cfx_t* fx, int cx, int cy, int b) {
     uint8_t buf[8][16];
     memset(buf, 0, sizeof(buf));
     int x0 = cx * 16, y0 = cy * 8;
-    uint32_t est = 2 * 90 + 2 * (uint32_t)fx->nspr;     /* the cell: its set-up and write-out; the list scanned */
+    uint32_t est = 2 * 90 + 2 * (uint32_t)fx->nspr, W = (uint32_t)fx->psram_t + 1;   /* the cell: its set-up and
+                                                                                      write-out; the list scanned */
     for (int l = 0; l < 4; l++) {
         const cfx_layer_t* L = &fx->layer[l];
         if (!(L->flags & CFX_L_ON) || (L->flags & CFX_L_OVER)) continue;
@@ -129,10 +133,10 @@ static void cfx_compose(cfx_t* fx, int cx, int cy, int b) {
                 uint8_t v = fx->psram(fx->ctx, (S->src + (uint32_t)sj * S->stride + (uint32_t)si) & 0xFFFFFF);
                 if (v == 0) continue;
                 uint8_t c = (uint8_t)(v + S->off);
-                if (S->flags & 4) { c = fx->psram(fx->ctx, (fx->blend + (uint32_t)c * 256u + buf[r][i]) & 0xFFFFFF); est += 2 * 14; }
+                if (S->flags & 4) { c = fx->psram(fx->ctx, (fx->blend + (uint32_t)c * 256u + buf[r][i]) & 0xFFFFFF); est += 2 * (W + 8); }
                 buf[r][i] = c;
             }
-            if (rowpx) { drawn = 1; est += 2 * 10 + 6 * (uint32_t)rowpx; }
+            if (rowpx) { drawn = 1; est += 2 * 10 + W * (uint32_t)rowpx; }
         }
         if (drawn) est += 2 * 12;
     }
@@ -256,7 +260,7 @@ int cfx_read(cfx_t* fx, uint32_t addr, uint16_t* data) {
             fx->on = 1; fx->key = 0; fx->ncmd = 0;
         } else if (w >= 0x2000) cfx_word(fx, w);
         if (w >= 1 && w < 16 && fx->on) {
-            fx->cnt[8] = CFX_KEY2;
+            fx->cnt[8] = CFX_KEY2; fx->cnt[9] = (uint16_t)fx->psram_t;
             *data = fx->cnt[w];
             return 1;
         }

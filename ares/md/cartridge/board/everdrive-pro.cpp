@@ -106,15 +106,24 @@ struct EverDrivePro : Interface {
     {"d1616d7617932b409c01605f12344af275fec8c25b0a69eca50c20aaef137b75", "krikzz map_svp (Virtua Racing's SVP)", ""},
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
-    //the CD32X cart compositor (CD32X-BootCamp cartfx/quartus/RBF_SHA256.txt, v2.2 and v2.1, 13 Nov 2026; fpga-cartfx branch)
-    {"147a841ae9e29571643f9dd8055c662fefa22069332d92b922ef6aac179ed3a6", "cartfx v2.2 for Hurrican CD32X", "cartfx-hur"},
-    {"764d9bb646d43c7e9d223379b51e16caef579b35e6d8dc3d91dc261ca4477666", "cartfx v2.2 for Jazz CD32X REV", "cartfx-oj"},
-    {"3220a5d76c4fccede5b5fd817d7d7e778ce8b20b3ba40461a63bc306aae37554", "cartfx v2.2 for SuperTux CD32X REV", "cartfx-stx"},
-    {"21a53854c48359c8cc506c1e7eb8036ebb3f5dd00f4138fccfb965d5896927a9", "cartfx v2.1 for Hurrican CD32X", "cartfx-hur"},
-    {"74d8b8b5e840222111b1ca96d95186912da063e1d0fa19f313ba8b66b884ac4e", "cartfx v2.1 for Jazz CD32X REV", "cartfx-oj"},
-    {"768bcc63ed39b01e62f72ba4c3819b3a06f5938c350a14c3bad1c82d96156c1a", "cartfx v2.1 for SuperTux CD32X REV", "cartfx-stx"},
+    //the CD32X cart compositor (CD32X-BootCamp cartfx/quartus/RBF_SHA256.txt; fpga-cartfx branch): v2.3, 14 Nov 2026 -
+    //the PSRAM read in 5 clocks ('cartfx-<game>') and in 8 ('cartfx-<game>8'); v2.2 and v2.1, 13 Nov 2026 (in 5, no counter 9)
+    {"fb671ec9529ad465a86999abc991af6e5cfa970f71287bca75b0a3b53e6cd4ac", "cartfx v2.3 T5 for Hurrican CD32X", "cartfx-hur"},
+    {"620b265be6cea9f94705ac87f5e0f2f83e04711309410f3d53948e339f15f4ac", "cartfx v2.3 T5 for Jazz CD32X REV", "cartfx-oj"},
+    {"b3f596cb87f02f349fbc743ab8badb9e4bcdc869b05785e28aea2f35b472a289", "cartfx v2.3 T5 for SuperTux CD32X REV", "cartfx-stx"},
+    {"92e1fb731684c70129340b637cfd5c374e7002af6629e0ee6d832e04aa6e9020", "cartfx v2.3 T8 for Hurrican CD32X", "cartfx-hur8"},
+    {"7c171d02689b1bec3f9413bbda65ec0fdbd4fd69b9027b4b255b4e0fab51418a", "cartfx v2.3 T8 for Jazz CD32X REV", "cartfx-oj8"},
+    {"ecb80a9297a7934346a571022415b947164d96a177e5c7914b778860ca8f57a1", "cartfx v2.3 T8 for SuperTux CD32X REV", "cartfx-stx8"},
+    {"147a841ae9e29571643f9dd8055c662fefa22069332d92b922ef6aac179ed3a6", "cartfx v2.2 for Hurrican CD32X", "cartfx-hur-v22"},
+    {"764d9bb646d43c7e9d223379b51e16caef579b35e6d8dc3d91dc261ca4477666", "cartfx v2.2 for Jazz CD32X REV", "cartfx-oj-v22"},
+    {"3220a5d76c4fccede5b5fd817d7d7e778ce8b20b3ba40461a63bc306aae37554", "cartfx v2.2 for SuperTux CD32X REV", "cartfx-stx-v22"},
+    {"21a53854c48359c8cc506c1e7eb8036ebb3f5dd00f4138fccfb965d5896927a9", "cartfx v2.1 for Hurrican CD32X", "cartfx-hur-v22"},
+    {"74d8b8b5e840222111b1ca96d95186912da063e1d0fa19f313ba8b66b884ac4e", "cartfx v2.1 for Jazz CD32X REV", "cartfx-oj-v22"},
+    {"768bcc63ed39b01e62f72ba4c3819b3a06f5938c350a14c3bad1c82d96156c1a", "cartfx v2.1 for SuperTux CD32X REV", "cartfx-stx-v22"},
   };
-  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx"};    //the models this board has (more as cores are added)
+  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
+                                               "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -451,9 +460,12 @@ struct EverDrivePro : Interface {
   }
 
   //The CD32X cart compositor (CD32X-BootCamp cartfx/; this fpga-cartfx branch, not main): the configurations 'cartfx-hur',
-  //'cartfx-oj', 'cartfx-stx' - Hurrican, Jazz REV, SuperTux REV (the .rbf's SHA-256 above, or a mega-pro.rbf.ares
-  //naming one). krikzz's map_ssf until the key; then SH2 reads of cart 0x3E0000-0x3FFFFF are the engine's, answered by
-  //its reference model (board/cartfx/cartfx.c: the C the engine was checked against in Verilator, word for word).
+  //'cartfx-oj', 'cartfx-stx' - Hurrican, Jazz REV, SuperTux REV - and 'cartfx-hur8', 'cartfx-oj8', 'cartfx-stx8', the
+  //same with the PSRAM read in 8 clocks, not 5 (v2.3's PSRAM_T: counter 9, and the estimate's word time); v2.1 and
+  //v2.2 ('cartfx-<game>-v22') read in 5 and have no counter 9 (it reads 0) (the .rbf's SHA-256 above, or a
+  //mega-pro.rbf.ares naming one). krikzz's map_ssf until the key; then SH2 reads of cart
+  //0x3E0000-0x3FFFFF are the engine's, answered by its reference model (board/cartfx/cartfx.c: the C the engine was
+  //checked against in Verilator, word for word).
   //Its time: a GO keeps the engine busy for the model's estimate of cfx_core.sv (cfx_t est) x CARTFX_SPEED percent
   //(120 by default: the console's own cart reads slow it), and the words sent meanwhile wait in the cart's queue
   //(1,024 words, FULL from 768), so SHOW takes effect when the cart's would. Traps ("[cartfx TRAP]"): words lost to a
@@ -483,9 +495,10 @@ struct EverDrivePro : Interface {
     return p;
   }
   auto cfxReset() -> void {
-    u16 key1 = rbfModel == "cartfx-oj" ? CFX_KEY1_OJ : rbfModel == "cartfx-stx" ? CFX_KEY1_STX : CFX_KEY1_HUR;
-    u8 id = rbfModel == "cartfx-oj" ? CFX_ID_OJ : rbfModel == "cartfx-stx" ? CFX_ID_STX : CFX_ID_HUR;
+    u16 key1 = rbfModel.beginsWith("cartfx-oj") ? CFX_KEY1_OJ : rbfModel.beginsWith("cartfx-stx") ? CFX_KEY1_STX : CFX_KEY1_HUR;
+    u8 id = rbfModel.beginsWith("cartfx-oj") ? CFX_ID_OJ : rbfModel.beginsWith("cartfx-stx") ? CFX_ID_STX : CFX_ID_HUR;
     cfx.psram = &EverDrivePro::cfxPsram; cfx.sram = cfxSram.data(); cfx.ctx = this;
+    cfx.psram_t = rbfModel.endsWith("8") ? 8 : 5;   //(kept by cfx_reset)
     cfx_reset(&cfx, key1, id);
     cfxQr = cfxQn = 0; cfxBusy = 0; cfxLost = 0; cfxSaid = false;
   }
@@ -531,7 +544,10 @@ struct EverDrivePro : Interface {
       else { cfxQ[(cfxQr + cfxQn) & 1023] = w; cfxQn++; }
       if(!cfx.on) { print("[EverDrive PRO] cartfx: OFF - the mapper's again\n"); cfxSaid = false; value = (u16)(cfx.id << 8); return true; }
     }
-    if(w >= 1 && w < 16) { cfx.cnt[8] = CFX_KEY2; value = cfx.cnt[w]; return true; }
+    if(w >= 1 && w < 16) {
+      cfx.cnt[8] = CFX_KEY2; cfx.cnt[9] = rbfModel.endsWith("-v22") ? 0 : (u16)cfx.psram_t;
+      value = cfx.cnt[w]; return true;
+    }
     v = (uint16_t)(cfx.id << 8 | (cfx.shown ? CFX_ST_SHOWN : 0) | (cfx.err ? CFX_ST_ERR : 0));
     if(cfxQn || cfxBusy > now) v |= CFX_ST_BUSY;
     if(getenv("CARTFX_TRACE") && (v & CFX_ST_BUSY) && cfxBusy > now + 100'000'000) print("[cartfx] busy for more than 100 ms\n");
