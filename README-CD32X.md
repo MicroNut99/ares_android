@@ -119,6 +119,21 @@ The list, what ares still cannot show, and the checks for a new PC Engine CD cor
 [README-FPGA-FINDINGS.md](README-FPGA-FINDINGS.md) section 6. `scripts/cd32x-pce-trap-test.py` makes a launcher that
 fires the chip 1 traps (no game data).
 
+**The CD32X cart compositor, `cartfx` (branch `fpga-cartfx`, 13 Nov 2026; not in main).** One engine for Hurrican,
+Jazz Jackrabbit REV and SuperTux REV (CD32X-BootCamp `cartfx/`: the specification and reference model in
+`model/`, the engine beside krikzz's unchanged `map_ssf`, three builds). ares knows the three `.rbf` by their
+SHA-256 (`cartfx/quartus/RBF_SHA256.txt`; models `cartfx-hur`, `cartfx-oj`, `cartfx-stx`) and answers with the
+reference model (`ares/md/cartridge/board/cartfx/`): krikzz's mapper until the key, then SH2 reads of cart
+0x3E0000-0x3FFFFF are the engine's. Its time: after a GO the engine is busy for the model's estimate of the engine's
+own time (within 0-20 % of the Verilog alone) x `CARTFX_SPEED` percent (120 by default), and the words sent
+meanwhile wait in the cart's queue, so a SHOW takes effect when the cart's would. Traps `[cartfx TRAP]`: words lost
+to a full queue; the 68000 writing the cart while the engine composes. `CARTFX_TRACE=1` prints each GO. On this
+branch a `SEGA SSF` 32X ROM goes into the EverDrive without a disc too (`--machine 32x --ramcart-type everdrive`),
+with the `mega-pro.rbf` from its folder - so the engine's console test runs as on the console:
+`ares-headless --game CFXTEST.32X --machine 32x --ramcart-type everdrive --ramcart ed.ram --frames 3600` (BootCamp
+`cartfx/test`). The scheduler keeps the time it takes off the threads, in nanoseconds (`Scheduler::reducedNs()`),
+for the model's clock: a u64 of `Thread::Second` units holds only two seconds.
+
 **U-R-R's engine (in main since v1.7; engine version 3 since v1.8; version 5 since 12 Nov 2026).** U-R-R (MicroNut99/rev32xcd, `cartridge/`) is a plain 32X cartridge
 ROM, not a launcher: its `mega-pro.rbf` is krikzz's `map_smd` plus U-R-R's engine, which answers reads of
 the cart's last 32 KB (`0x3F8000-0x3FFFFF`) and draws the game's effects for the Genesis VDP (shockwave

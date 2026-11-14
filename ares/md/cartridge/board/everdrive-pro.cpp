@@ -106,8 +106,15 @@ struct EverDrivePro : Interface {
     {"d1616d7617932b409c01605f12344af275fec8c25b0a69eca50c20aaef137b75", "krikzz map_svp (Virtua Racing's SVP)", ""},
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
+    //the CD32X cart compositor (CD32X-BootCamp cartfx/quartus/RBF_SHA256.txt, v2.2 and v2.1, 13 Nov 2026; fpga-cartfx branch)
+    {"147a841ae9e29571643f9dd8055c662fefa22069332d92b922ef6aac179ed3a6", "cartfx v2.2 for Hurrican CD32X", "cartfx-hur"},
+    {"764d9bb646d43c7e9d223379b51e16caef579b35e6d8dc3d91dc261ca4477666", "cartfx v2.2 for Jazz CD32X REV", "cartfx-oj"},
+    {"3220a5d76c4fccede5b5fd817d7d7e778ce8b20b3ba40461a63bc306aae37554", "cartfx v2.2 for SuperTux CD32X REV", "cartfx-stx"},
+    {"21a53854c48359c8cc506c1e7eb8036ebb3f5dd00f4138fccfb965d5896927a9", "cartfx v2.1 for Hurrican CD32X", "cartfx-hur"},
+    {"74d8b8b5e840222111b1ca96d95186912da063e1d0fa19f313ba8b66b884ac4e", "cartfx v2.1 for Jazz CD32X REV", "cartfx-oj"},
+    {"768bcc63ed39b01e62f72ba4c3819b3a06f5938c350a14c3bad1c82d96156c1a", "cartfx v2.1 for SuperTux CD32X REV", "cartfx-stx"},
   };
-  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx"};    //the models this board has (more as cores are added)
+  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -185,10 +192,10 @@ struct EverDrivePro : Interface {
   //  kind 2: the PC Engine CPU runs in the I/O page (below $2000) after having run above it (gotx: the last 64 PCs)
   //  kind 3: SELECT asked by the SH2 (the cores never give it: RUN + SELECT is the PC Engine's soft reset)
   //  kind 4: the backup RAM differs from the cart's (the cart's sram is uninitialised)
-  enum TrapCore : u32 { TrapDracx, TrapGotx, TrapCores };
+  enum TrapCore : u32 { TrapDracx, TrapGotx, TrapCartfx, TrapCores };
   inline static u64 trapN[TrapCores][8] = {};
   static auto coreTrap(u32 core, u32 kind, const string& what) -> void {
-    static const char* names[TrapCores] = {"dracx", "gotx"};
+    static const char* names[TrapCores] = {"dracx", "gotx", "cartfx"};
     u64 n = ++trapN[core][kind & 7];
     if(n == 1) print("[", names[core], " TRAP] ", what, "\n");
     else if((n & (n - 1)) == 0) print("[", names[core], " TRAP] (x", n, ") ", what, "\n");
@@ -443,8 +450,104 @@ struct EverDrivePro : Interface {
     else gx.cfg[off >> 2 & 0xff] = gx.cfgHi << 16 | data;
   }
 
+  //The CD32X cart compositor (CD32X-BootCamp cartfx/; this fpga-cartfx branch, not main): the configurations 'cartfx-hur',
+  //'cartfx-oj', 'cartfx-stx' - Hurrican, Jazz REV, SuperTux REV (the .rbf's SHA-256 above, or a mega-pro.rbf.ares
+  //naming one). krikzz's map_ssf until the key; then SH2 reads of cart 0x3E0000-0x3FFFFF are the engine's, answered by
+  //its reference model (board/cartfx/cartfx.c: the C the engine was checked against in Verilator, word for word).
+  //Its time: a GO keeps the engine busy for the model's estimate of cfx_core.sv (cfx_t est) x CARTFX_SPEED percent
+  //(120 by default: the console's own cart reads slow it), and the words sent meanwhile wait in the cart's queue
+  //(1,024 words, FULL from 768), so SHOW takes effect when the cart's would. Traps ("[cartfx TRAP]"): words lost to a
+  //full queue; the 68000 writing the cart while the engine composes (it reads the PSRAM then). Its SRAM starts with a
+  //pattern, as the cart's starts with garbage. CARTFX_TRACE=1 prints each GO. Not modelled: the save state, the
+  //engine's accesses done again (counters 5 and 6 stay 0). A green run here is never a console pass.
+  bool cfxOn = false;
+  cfx_t cfx = {};
+  std::vector<uint16_t> cfxSram;
+  u16 cfxQ[1024] = {};           //the cart's queue while the engine is busy
+  u32 cfxQr = 0, cfxQn = 0;
+  u64 cfxBusy = 0;               //the engine is busy until this time (cfxNow(): nanoseconds)
+  u64 cfxLost = 0;
+  bool cfxSaid = false;
+  auto cfxTrap(u32 kind, const string& what) -> void { coreTrap(TrapCartfx, kind, what); }
+  auto cfxNow() -> u64 {   //nanoseconds since power-on
+    u64 c = cpu.active() ? cpu.clock() : m32x.shm.active() ? m32x.shm.clock() : m32x.shs.active() ? m32x.shs.clock() : cpu.clock();
+    return c / Scheduler::NanoUnits + scheduler.reducedNs();
+  }
+  static auto cfxPsram(void* ctx, uint32_t a) -> uint8_t {   //the engine's PSRAM: the cart's 16 MB, byte address
+    auto& self = *(EverDrivePro*)ctx;
+    n16 w = self.ram[(a & 0xffffff) >> 1];
+    return a & 1 ? (u8)w.byte(0) : (u8)w.byte(1);
+  }
+  static auto cfxPercent() -> u64 {
+    static u64 p = [] { auto e = getenv("CARTFX_SPEED"); return e && atoi(e) > 0 ? (u64)atoi(e) : (u64)120; }();
+    return p;
+  }
+  auto cfxReset() -> void {
+    u16 key1 = rbfModel == "cartfx-oj" ? CFX_KEY1_OJ : rbfModel == "cartfx-stx" ? CFX_KEY1_STX : CFX_KEY1_HUR;
+    u8 id = rbfModel == "cartfx-oj" ? CFX_ID_OJ : rbfModel == "cartfx-stx" ? CFX_ID_STX : CFX_ID_HUR;
+    cfx.psram = &EverDrivePro::cfxPsram; cfx.sram = cfxSram.data(); cfx.ctx = this;
+    cfx_reset(&cfx, key1, id);
+    cfxQr = cfxQn = 0; cfxBusy = 0; cfxLost = 0; cfxSaid = false;
+  }
+  //a word into the engine, at the time it takes it: a GO keeps it busy for its estimate from then
+  auto cfxFeed(u16 w, u64 start) -> void {
+    u16 frames = cfx.cnt[1];
+    uint16_t v;
+    cfx_read(&cfx, CFX_CMD_BASE + 2u * w, &v);
+    if(cfx.cnt[1] != frames) {
+      u64 clocks = (u64)cfx.est * cfxPercent() / 100;
+      cfx.cnt[4] = (u16)min<u64>(clocks / 64, 0xffff);
+      cfxBusy = start + clocks * 20;   //(50 MHz: 20 ns a clock)
+      if(getenv("CARTFX_TRACE")) print("[cartfx] GO ", cfx.cnt[1], ": ", cfx.cnt[2], " cells, ", cfx.cnt[3], " sprites, busy ",
+        (u32)(clocks / 50), " us from ", start / 1000, " us (now ", cfxNow() / 1000, ")\n");
+    }
+  }
+  //the words the queue holds go in once the engine is free, each when the one before it is done
+  auto cfxDrain(u64 now) -> void {
+    while(cfxQn && cfxBusy <= now && cfx.on) {
+      u16 w = cfxQ[cfxQr]; cfxQr = (cfxQr + 1) & 1023; cfxQn--;
+      cfxFeed(w, cfxBusy);
+    }
+    if(!cfx.on) cfxQn = 0;
+  }
+  //an SH2 read of cart 0x3E0000-0x3FFFFF: true when the engine answers it
+  auto cfxRead(u32 a, n16& value) -> bool {
+    a &= 0x3ffffe;
+    uint16_t v;
+    if(!cfx.on) {   //off: the mapper answers; the engine watches for its key
+      if(!cfx_read(&cfx, a, &v)) return false;
+      cfxQr = cfxQn = 0; cfxBusy = 0;
+      if(!cfxSaid) { cfxSaid = true; print("[EverDrive PRO] cartfx: the key - the engine is on (ID ", hex(cfx.id, 2L), ")\n"); }
+      value = v; return true;
+    }
+    u64 now = cfxNow();
+    cfxDrain(now);
+    if(!cfx.on) return false;
+    if(a < CFX_CMD_BASE) { cfx_read(&cfx, a, &v); value = v; return true; }   //the shown picture
+    u16 w = (a - CFX_CMD_BASE) >> 1;
+    if(w >= 0x2000) {
+      if(!cfxQn && cfxBusy <= now) cfxFeed(w, now);
+      else if(cfxQn == 1024) { cfx.cnt[7] = (u16)++cfxLost; cfxTrap(0, {"a word lost: the cart's queue was full (1,024 words) - wait while the status says FULL (bit 1)"}); }
+      else { cfxQ[(cfxQr + cfxQn) & 1023] = w; cfxQn++; }
+      if(!cfx.on) { print("[EverDrive PRO] cartfx: OFF - the mapper's again\n"); cfxSaid = false; value = (u16)(cfx.id << 8); return true; }
+    }
+    if(w >= 1 && w < 16) { cfx.cnt[8] = CFX_KEY2; value = cfx.cnt[w]; return true; }
+    v = (uint16_t)(cfx.id << 8 | (cfx.shown ? CFX_ST_SHOWN : 0) | (cfx.err ? CFX_ST_ERR : 0));
+    if(cfxQn || cfxBusy > now) v |= CFX_ST_BUSY;
+    if(getenv("CARTFX_TRACE") && (v & CFX_ST_BUSY) && cfxBusy > now + 100'000'000) print("[cartfx] busy for more than 100 ms\n");
+    if(cfxQn >= 768) v |= CFX_ST_FULL;
+    value = v;
+    return true;
+  }
+
   auto load() -> void override {
     identifyRbf();
+    cfxOn = rbfModel.beginsWith("cartfx-");
+    if(cfxOn) {
+      cfxSram.resize(0x40000);
+      for(u32 n : range(0x40000)) cfxSram[n] = (u16)(n * 0x9e37 + 0x5a5a);
+      cfxReset();
+    }
     dracx = rbfModel == "dracx";
     gotx = rbfModel == "gotx";
     ram.allocate(16_MiB >> 1, 0xffff);
@@ -535,6 +638,10 @@ struct EverDrivePro : Interface {
         return (n16)(0xdead ^ word);
       }
     }
+    if(cfxOn && !cpu.active() && (u32)(n22)address >= 0x3e0000) {   //(fpga-cartfx: the compositor's window, once keyed)
+      n16 v;
+      if(cfxRead((u32)(n22)address, v)) return v;
+    }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
       sh2Word = word;
@@ -559,6 +666,12 @@ struct EverDrivePro : Interface {
         dxTrap(1, {"the console wrote PSRAM chip 1 (bank ", b, ") after the start: on the cart the engine owns it - write lost"});
         return;
       }
+    }
+    if(cfxOn && cfx.on && cpu.active()) {   //(fpga-cartfx: the engine reads the PSRAM while it composes)
+      u64 now = cfxNow();
+      cfxDrain(now);
+      if(cfxQn || cfxBusy > now)
+        cfxTrap(1, {"the 68000 wrote the cart (bank ", offset(address) >> 19, ") while the engine composes - it reads the PSRAM then: no GO before a load ends"});
     }
     if(!writeEnable || writeProtect) return;
     u32 word = offset(address) >> 1;
@@ -637,6 +750,7 @@ struct EverDrivePro : Interface {
   }
 
   auto power(bool reset) -> void override {
+    if(cfxOn) cfxReset();   //(fpga-cartfx: off until the key)
     dx = {};   //(dracx: the engine at its reset until the start read)
     gx = {};   //(gotx: the same; off at the console's reset too, docs/36)
     for(u32 n : range(8)) bank[n] = n;
