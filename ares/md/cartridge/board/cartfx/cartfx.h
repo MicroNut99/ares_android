@@ -1,7 +1,7 @@
 /* cartfx.h - the CD32X cart compositor on the Mega EverDrive PRO's FPGA: the reference model (C)
  *
  * One engine for Hurrican CD32X, Jazz Jackrabbit CD32X REV and SuperTux CD32X REV, grown from Rayman CD32X's
- * compositor (Rayman_32X_RAM fpga/model/rayfx.h: the window, the key, the command encoding, the 16 x 8 cells).
+ * compositor (its window, its key, its command encoding, its 16 x 8 cells).
  * This C is the specification: the Verilog (cartfx/rtl) is checked against it word for word in Verilator
  * (cartfx/sim), and the same C runs in a game's PC build and in ares. cartfx/README.md says why; this file says
  * what, to the bit.
