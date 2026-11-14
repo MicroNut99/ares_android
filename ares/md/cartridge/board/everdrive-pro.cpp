@@ -151,6 +151,7 @@ struct EverDrivePro : Interface {
     u16 cfgHi = 0; u32 cfg[256] = {};       //the load port: FwState's words (cd_fw.h), 0xC0 / 0xC1 the two steps
     u32 lblHi = 0, lbl = 0;                 //the sector label, its high part, then the whole
     bool full = false; u32 have = 0;        //the spare holds sector `have`
+    u32 c1n = 0;                            //(DraculaX docs/197: sectors fetched from chip 1)
     u8 sec[2048] = {};
     u8 bram[2048] = {}; bool bramSet = false;   //(DraculaX docs/118) the backup RAM's port: written before the start
     u8 pad = 0;                             //the pad (Mednafen's order), before and after the start
@@ -198,7 +199,7 @@ struct EverDrivePro : Interface {
   //an access by the 68000 or an SH2: the machine brought to its time first
   auto dxId() -> u32 {   //(DRACX_ID=<hex>: an older core's ID word for a test - below 0xd161 SELECT is not given, as step 60; DraculaX docs/192)
     static u32 id = 0;
-    if(!id) { id = 0xd161; if(auto e = getenv("DRACX_ID")) { u32 v = (u32)strtoul(e, nullptr, 16); if(v) id = v; } }
+    if(!id) { id = 0xd162; if(auto e = getenv("DRACX_ID")) { u32 v = (u32)strtoul(e, nullptr, 16); if(v) id = v; } }
     return id;
   }
   auto dxSync() -> void {
@@ -241,10 +242,21 @@ struct EverDrivePro : Interface {
     print("[EverDrive PRO] dracx: the engine started (tracks ", dx.tab[0], "-", dx.tab[1], ", lead-out ", (s32)dx.tab[2], ")\n");
   }
 
+  static auto dxFeedLog(u32 lbl) -> void {   //(DRACX_FEEDLOG=<file>: the sectors fed, in order - written or fetched from chip 1)
+    if(auto p = getenv("DRACX_FEEDLOG")) { static FILE* f = fopen(p, "w"); if(f) { fprintf(f, "%u\n", (unsigned)lbl); fflush(f); } }
+  }
   //window 7's bank (docs/100 §2): what a read there does and answers (false: the bank's own memory answers)
   auto dxRead7(u32 off, n16& value) -> bool {
     if(off < 0x10000) { dx.lbl = dx.lblHi << 12 | (off >> 4 & 0xfff); dx.full = false; return false; }   //label, low
     if(off >= 0x10000 && off < 0x12000) { dx.lblHi = off >> 4 & 0x1ff; return false; }                  //label, high
+    if(off >= 0x20000 && off < 0x30000 && dxId() >= 0xd162) {   //(DraculaX docs/197, step 62: the chip-1 fetch - slot k at chip 1 +
+      //0x40000 + k x 2 KB, the launcher's file in banks 16-27; the core reads it into the spare itself in 0.26-0.46 ms,
+      //the model at once: the spare full with the label's sector, register word 2 bit 1 never seen)
+      u32 base = (16 << 18) + ((off >> 4 & 0xfff) + 128) * 1024;
+      for(u32 n : range(1024)) { n16 w = ram[base + n]; dx.sec[2 * n] = w >> 8; dx.sec[2 * n + 1] = w; }
+      dx.full = true; dx.have = dx.lbl; dx.c1n++; dxFeedLog(dx.lbl);
+      return false;
+    }
     if(off >= 0x48000 && off < 0x49000) { dx.pad = off >> 4; if(dxId() < 0xd161) dx.pad &= ~4u;   //(step 60 and before: SELECT never given, map_ssf_dx's dx_btn)
       if(dx.on && dxMasks.empty()) dxm_pad_now(dx.pad); return false; }
     if(off >= 0x40000 && off < 0x40100) {                                                                //the registers
@@ -272,7 +284,7 @@ struct EverDrivePro : Interface {
       u32 b = off & 0x7fe;
       if(upper) dx.sec[b] = data >> 8;
       if(lower) { dx.sec[b + 1] = data; if(b == 0x7fe) { dx.full = true; dx.have = dx.lbl;
-        if(auto p = getenv("DRACX_FEEDLOG")) { static FILE* f = fopen(p, "w"); if(f) { fprintf(f, "%u\n", (unsigned)dx.lbl); fflush(f); } } } }   //(the sectors fed, in order: DraculaX docs/171)
+        dxFeedLog(dx.lbl); } }   //(the sectors fed, in order: DraculaX docs/171)
     } else if(off >= 0x50000 && off < 0x50800) {                                //the backup RAM (docs/118): bytes 2k, 2k + 1
       u8* b = dx.on ? dxm_bram() : dx.bram; u32 k = off & 0x7fe;
       if(upper) b[k] = data >> 8;
