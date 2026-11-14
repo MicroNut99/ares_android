@@ -401,6 +401,13 @@ void io_cdlog_put(unsigned w) { cdl_m[cdl_wp] = (uint16_t)w; cdl_wp = (cdl_wp + 
 #else
 #define CDL_PUT(w) ((void)0)
 #endif
+#ifdef __sh__
+/* (docs/191: on the SH2 nothing reads this copy - the engine build's PSG registers are the core's - and its 568 bytes
+   of SDRAM are needed) */
+const uint8_t *io_psg(void) { return 0; }
+unsigned long io_psg_dda(void) { return 0; }
+#define psg_keep(r, v) ((void)0)
+#else
 static uint8_t psg_m[512]; static unsigned psg_sel, psg_ctl[6], psg_ix[6]; static unsigned long psg_dda_n;
 const uint8_t *io_psg(void) { return psg_m; }
 unsigned long io_psg_dda(void) { return psg_dda_n; }   /* (for the model's trace only: bytes written in DDA mode with the channel on) */
@@ -418,6 +425,7 @@ static void psg_keep(unsigned r, uint8_t v)
     if (r == 6 && (psg_ctl[psg_sel] & 0xC0) == 0xC0) psg_dda_n++;
     psg_m[psg_sel * 8 + r] = v;
 }
+#endif
 
 int io_write(Hw *io, unsigned off, uint8_t v)
 {

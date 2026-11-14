@@ -28,7 +28,9 @@ static int stop;
 static uint16_t stamp[1024], snap[5];                         /* docs/101: the video window's stamps and frame snapshot */
 static DxmHave have_fn; static int waiting;                    /* the feed's wait: the drive's next sector not there */
 static int hold_start;                                         /* a stop before an instruction: resume straight at its start */
-static void stamp_vram(unsigned a) { stamp[(a >> 6) & 1023] = (uint16_t)frame; }
+static long sframe;                                           /* (docs/199: the stamps' clock - frame at the display's start) */
+static void stamp_vram(unsigned a) { stamp[(a >> 6) & 1023] = (uint16_t)sframe; }
+static void disp_start(void) { sframe = frame; }
 /* the running instruction (as trace_main.c): its opcode, start time, base cycles, accesses so far, wait so far */
 static int64_t t_ins; static int cur_op, cur_base, cur_acc, prev_set, cur_u = 12, cpu_speed, bm_done, irq_done, prev_i_gate = -1, started;
 static uint8_t cur_p; static uint16_t cur_pc; static int64_t cur_wait;
@@ -254,7 +256,7 @@ int dxm_power(const uint8_t *syscard, const uint8_t *bram_in, const int32_t *tab
     for (int i = 0; i < 512; i++) vdc.color[i] = ((i ^ (i >> 3)) & 1) ? 0x000 : 0x1FF;
     vdc.read_buffer = r[18]; vdc.pending_read_addr = r[22]; vdc.pending_write_addr = r[24]; vdc.pending_write_latch = r[25];
     vt_start(&vdc, r, 0);
-    vdc_vram_hook = stamp_vram; memset(stamp, 0, sizeof stamp); memset(snap, 0, sizeof snap); waiting = 0; hold_start = 0;
+    vdc_vram_hook = stamp_vram; vdc_disp_hook = disp_start; sframe = 0; memset(stamp, 0, sizeof stamp); memset(snap, 0, sizeof snap); waiting = 0; hold_start = 0;
     io_start(&hw, q, 0);
     hw.ram = adpcm_ram;
     toc[0] = (uint32_t)tab[0]; toc[1] = (uint32_t)tab[1];       /* the core's TOC, from the table: tracks, lead-out */
@@ -285,13 +287,33 @@ const uint16_t *dxm_cdlog(void) { return io_cdlog(); } unsigned dxm_cdlog_wp(voi
 unsigned long dxm_psg_dda(void) { return io_psg_dda(); }
 const uint16_t *dxm_snapshot(void) { return snap; }
 void dxm_on_frame(void (*fn)(void *, long), void *user) { frame_fn = fn; frame_user = user; }
+#if !defined(__sh__) && defined(AD_LOG)
+/* docs/192: dxm_watch(a) - a base RAM byte ($2000-$3FFF) watched: each instruction that changes it is printed with its
+   address, the banks mapped and its bytes (dxm_pc WATCH=<addr>[,<addr>...]): where the game counts a life or a hit. */
+static int nwatch; static uint16_t watch_a[8]; static uint8_t watch_v[8];
+void dxm_watch(unsigned a) { if (nwatch < 8 && a >= 0x2000 && a < 0x4000) { watch_a[nwatch] = (uint16_t)(a - 0x2000); watch_v[nwatch] = base_ram[a - 0x2000]; nwatch++; } }
+static void watch_check(Cpu *c, uint16_t pc0)
+{
+    for (int i = 0; i < nwatch; i++) if (base_ram[watch_a[i]] != watch_v[i]) {
+        printf("watch frame %ld $%04X: %02X -> %02X at %04X (bank %02X) bytes", frame, 0x2000 + watch_a[i], watch_v[i], base_ram[watch_a[i]], pc0, c->MPR[pc0 >> 13]);
+        for (int k = -8; k < 8; k++) { const uint16_t a = (uint16_t)(pc0 + k); printf("%s%02X", k == 0 ? " | " : " ", c->rp[a >> 13] ? c->rp[a >> 13][a & 0x1FFF] : 0xFF); }
+        printf("  A %02X X %02X Y %02X\n", c->A, c->X, c->Y);
+        watch_v[i] = base_ram[watch_a[i]];
+    }
+}
+#define WATCH_CHECK(c, pc0) do { if (nwatch) watch_check(c, pc0); } while (0)
+#else
+#define WATCH_CHECK(c, pc0) ((void)0)
+#endif
 static void run(void)
 {
     Cpu *c = &cpu; stop = 0;
     while (!stop) {
         c->miss = 0;
         if (trace_check(c, c->pc)) { if (stop) break; continue; }
+        const uint16_t pc0 = c->pc; (void)pc0;
         interp_one(c);
+        WATCH_CHECK(c, pc0);
     }
 }
 long dxm_run_frames(long n) { frames_to = frame + n; until = -1; run(); return frame; }

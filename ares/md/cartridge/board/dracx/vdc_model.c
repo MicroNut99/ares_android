@@ -10,7 +10,8 @@
 
 static const uint16_t vram_inc[4] = { 1, 32, 64, 128 };
 void (*vdc_scroll_hook)(Vdc *v);                             /* (docs/105: each BXR / BYR write) */
-void (*vdc_vram_hook)(unsigned addr);                       /* (docs/101: each VRAM word written, for the video window's stamps) */
+void (*vdc_vram_hook)(unsigned addr);
+void (*vdc_disp_hook)(void);                                   /* (docs/199: the display's start, line 0 of the line table) */                       /* (docs/101: each VRAM word written, for the video window's stamps) */
 
 void vdc_init(Vdc *v) { memset(v, 0, sizeof *v); v->irq_rise = v->irq_prev_rise = INT64_MAX; v->irq_prev_clear = 0; }
 

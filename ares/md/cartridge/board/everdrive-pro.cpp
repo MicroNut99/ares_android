@@ -199,7 +199,7 @@ struct EverDrivePro : Interface {
   //an access by the 68000 or an SH2: the machine brought to its time first
   auto dxId() -> u32 {   //(DRACX_ID=<hex>: an older core's ID word for a test - below 0xd161 SELECT is not given, as step 60; DraculaX docs/192)
     static u32 id = 0;
-    if(!id) { id = 0xd162; if(auto e = getenv("DRACX_ID")) { u32 v = (u32)strtoul(e, nullptr, 16); if(v) id = v; } }
+    if(!id) { id = 0xd163; if(auto e = getenv("DRACX_ID")) { u32 v = (u32)strtoul(e, nullptr, 16); if(v) id = v; } }
     return id;
   }
   auto dxSync() -> void {
