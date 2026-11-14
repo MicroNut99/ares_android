@@ -28,9 +28,11 @@ static int stop;
 static uint16_t stamp[1024], snap[5];                         /* docs/101: the video window's stamps and frame snapshot */
 static DxmHave have_fn; static int waiting;                    /* the feed's wait: the drive's next sector not there */
 static int hold_start;                                         /* a stop before an instruction: resume straight at its start */
-static long sframe;                                           /* (docs/199: the stamps' clock - frame at the display's start) */
-static void stamp_vram(unsigned a) { stamp[(a >> 6) & 1023] = (uint16_t)sframe; }
-static void disp_start(void) { sframe = frame; }
+/* docs/200 (the core's step 61b, ID 0xD261): with dxm_stamp_flag set, a stamp's bit 15 = the write was made during the
+   display (from the line table's line 0 to the frame's end); its frame in 15 bits. 0: the frame in 16 bits (step 61) */
+int dxm_stamp_flag; static int disp;
+static void stamp_vram(unsigned a) { stamp[(a >> 6) & 1023] = dxm_stamp_flag ? (uint16_t)((disp << 15) | (frame & 0x7FFF)) : (uint16_t)frame; }
+static void disp_start(void) { disp = 1; }
 /* the running instruction (as trace_main.c): its opcode, start time, base cycles, accesses so far, wait so far */
 static int64_t t_ins; static int cur_op, cur_base, cur_acc, prev_set, cur_u = 12, cpu_speed, bm_done, irq_done, prev_i_gate = -1, started;
 static uint8_t cur_p; static uint16_t cur_pc; static int64_t cur_wait;
@@ -169,7 +171,7 @@ static void slice_end(int64_t t)
         snap[0] = vdc.BXR; snap[1] = vdc.BYR; snap[2] = vdc.MWR; snap[3] = vdc.CR; snap[4] = (uint16_t)frame;
         memcpy(snap_lines, vdc.lines, sizeof snap_lines);
         if (frame_fn) frame_fn(frame_user, frame);
-        frame++; if (!pad_now) io_set_buttons(&hw, pad_next);
+        frame++; disp = 0; if (!pad_now) io_set_buttons(&hw, pad_next);
     }
     vdc.exit_req = 0;
 }
@@ -256,7 +258,7 @@ int dxm_power(const uint8_t *syscard, const uint8_t *bram_in, const int32_t *tab
     for (int i = 0; i < 512; i++) vdc.color[i] = ((i ^ (i >> 3)) & 1) ? 0x000 : 0x1FF;
     vdc.read_buffer = r[18]; vdc.pending_read_addr = r[22]; vdc.pending_write_addr = r[24]; vdc.pending_write_latch = r[25];
     vt_start(&vdc, r, 0);
-    vdc_vram_hook = stamp_vram; vdc_disp_hook = disp_start; sframe = 0; memset(stamp, 0, sizeof stamp); memset(snap, 0, sizeof snap); waiting = 0; hold_start = 0;
+    vdc_vram_hook = stamp_vram; vdc_disp_hook = disp_start; disp = 0; memset(stamp, 0, sizeof stamp); memset(snap, 0, sizeof snap); waiting = 0; hold_start = 0;
     io_start(&hw, q, 0);
     hw.ram = adpcm_ram;
     toc[0] = (uint32_t)tab[0]; toc[1] = (uint32_t)tab[1];       /* the core's TOC, from the table: tracks, lead-out */

@@ -54,6 +54,7 @@ uint8_t *dxm_base_ram(void); uint8_t *dxm_cd_ram(void); uint8_t *dxm_super_ram(v
 uint16_t *dxm_vram(void); uint16_t *dxm_sat(void); uint16_t *dxm_colors(void);
 void dxm_regs(uint16_t *bxr, uint16_t *byr, uint16_t *mwr, uint16_t *cr);
 void dxm_state_text(void);                  /* the CD unit's and video chips' hidden state, as text (trace_main.c RUN_STATE) */
+extern int dxm_stamp_flag;   /* docs/200: 1 = the stamps as step 61b has them (bit 15: written during the display) */
 #ifdef __cplusplus
 }
 #endif

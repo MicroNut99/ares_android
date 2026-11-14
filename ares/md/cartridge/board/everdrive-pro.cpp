@@ -199,7 +199,7 @@ struct EverDrivePro : Interface {
   //an access by the 68000 or an SH2: the machine brought to its time first
   auto dxId() -> u32 {   //(DRACX_ID=<hex>: an older core's ID word for a test - below 0xd161 SELECT is not given, as step 60; DraculaX docs/192)
     static u32 id = 0;
-    if(!id) { id = 0xd163; if(auto e = getenv("DRACX_ID")) { u32 v = (u32)strtoul(e, nullptr, 16); if(v) id = v; } }
+    if(!id) { id = 0xd261; if(auto e = getenv("DRACX_ID")) { u32 v = (u32)strtoul(e, nullptr, 16); if(v) id = v; } }
     return id;
   }
   auto dxSync() -> void {
@@ -232,6 +232,7 @@ struct EverDrivePro : Interface {
     std::vector<u8> bram;   //DRACX_BRAM=<file> (2 KB): the backup RAM at power-on, for a recording's replay (the cart: zeros)
     if(auto p = getenv("DRACX_BRAM")) if(FILE* f = fopen(p, "rb")) { bram.resize(2048); if(fread(bram.data(), 1, 2048, f) != 2048) bram.clear(); fclose(f); }
     if(bram.empty() && dx.bramSet) bram.assign(dx.bram, dx.bram + 2048);   //(docs/118: what the 68000 wrote to the port)
+    dxm_stamp_flag = dxId() == 0xd261;   //(DraculaX docs/200, step 61b: the stamps' bit 15 = written during the display)
     if(!dxm_power(dx.rom.data(), bram.empty() ? nullptr : bram.data(), (const s32*)dx.tab, dxSector, this)) {
       print("[EverDrive PRO] dracx: the disc's table from the load port was not taken\n"); return;
     }
@@ -249,7 +250,7 @@ struct EverDrivePro : Interface {
   auto dxRead7(u32 off, n16& value) -> bool {
     if(off < 0x10000) { dx.lbl = dx.lblHi << 12 | (off >> 4 & 0xfff); dx.full = false; return false; }   //label, low
     if(off >= 0x10000 && off < 0x12000) { dx.lblHi = off >> 4 & 0x1ff; return false; }                  //label, high
-    if(off >= 0x20000 && off < 0x30000 && dxId() >= 0xd162) {   //(DraculaX docs/197, step 62: the chip-1 fetch - slot k at chip 1 +
+    if(off >= 0x20000 && off < 0x30000 && dxId() >= 0xd162 && dxId() < 0xd200) {   //(DraculaX docs/197, step 62: the chip-1 fetch - slot k at chip 1 +
       //0x40000 + k x 2 KB, the launcher's file in banks 16-27; the core reads it into the spare itself in 0.26-0.46 ms,
       //the model at once: the spare full with the label's sector, register word 2 bit 1 never seen)
       u32 base = (16 << 18) + ((off >> 4 & 0xfff) + 128) * 1024;
