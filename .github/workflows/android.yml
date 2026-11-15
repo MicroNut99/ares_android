@@ -1,10 +1,17 @@
 name: ares CD32X (Android)
-# Builds the Android APK (arm64) and publishes it as the "android-latest" pre-release.
+# Builds the Android APK (arm64) and publishes it as the "android-latest" pre-release. Run by hand with a
+# release tag (Actions > ares CD32X (Android) > Run workflow > release_tag, e.g. cd32x-v1.9), it also attaches the
+# APK to that release as ares-cd32x-android-arm64-<tag>.apk, beside the Windows and Linux builds.
 on:
   push:
     branches: [ main ]
     paths: [ 'android/**', 'ares/**', 'mia/**', 'nall/**', 'libco/**', 'thirdparty/**', '.github/workflows/android.yml' ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'A release to attach the APK to as well (e.g. cd32x-v1.9); empty: android-latest only'
+        required: false
+        default: ''
 permissions:
   contents: write
 concurrency:
@@ -57,3 +64,12 @@ jobs:
         fi
         gh api -X PATCH "repos/$GH_REPO/git/refs/tags/android-latest" -f sha="$GITHUB_SHA" -F force=true || true
         gh release upload android-latest ares-cd32x-android-arm64.apk --clobber
+    - name: Attach to the release
+      if: github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != ''
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        TAG: ${{ github.event.inputs.release_tag }}
+      run: |
+        cp ares-cd32x-android-arm64.apk "ares-cd32x-android-arm64-$TAG.apk"
+        gh release upload "$TAG" "ares-cd32x-android-arm64-$TAG.apk" --clobber
