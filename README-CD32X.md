@@ -119,11 +119,12 @@ The list, what ares still cannot show, and the checks for a new PC Engine CD cor
 [README-FPGA-FINDINGS.md](README-FPGA-FINDINGS.md) section 6. `scripts/cd32x-pce-trap-test.py` makes a launcher that
 fires the chip 1 traps (no game data).
 
-**U-R-R's engine (in main since v1.7; engine version 3 since v1.8; version 5 since 12 Nov 2026).** U-R-R (MicroNut99/rev32xcd, `cartridge/`) is a plain 32X cartridge
+**U-R-R's engine (in main since v1.7; engine version 3 since v1.8; version 5 since 12 Nov 2026; version 6 since 16 Nov 2026).** U-R-R (MicroNut99/rev32xcd, `cartridge/`) is a plain 32X cartridge
 ROM, not a launcher: its `mega-pro.rbf` is krikzz's `map_smd` plus U-R-R's engine, which answers reads of
 the cart's last 32 KB (`0x3F8000-0x3FFFFF`) and draws the game's effects for the Genesis VDP (shockwave
 rings, glow + ripple, spinning lettering; engine v4: each letter its own motion; engine v5: the solar storms -
-512 particles off the burning stars, storm fronts, flares, a hit counter for the player). ares models it with the game's own C++ reference model
+512 particles off the burning stars, storm fronts, flares, a hit counter for the player; engine v6: 16 coloured
+lights - muzzle flash, shots, explosions - summed into plane B). ares models it with the game's own C++ reference model
 (`ares/md/cartridge/board/urr-fx/urr_fx.h`, copied from `cartridge/fpga/model/`; the Verilog matches it bit
 for bit in simulation). It is **on whenever U-R-R's ROM is loaded** (its header title starts `U-R-R`) - as on
 the console with the `.rbf` beside the ROM; `URR_FPGA=0` turns it off (the game then runs as on any other

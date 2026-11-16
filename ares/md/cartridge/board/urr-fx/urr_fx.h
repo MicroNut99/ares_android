@@ -37,6 +37,15 @@
      0x7F       how much they curl (their velocity turned each step): bits 1:0 the emitters', bits 3:2 a flare's -
                 0 by 1/16, 1 by 1/32, 2 by 1/64 (a gentle roll), 3 not at all
      read: 9 particles that hit the player (counts up, wraps)   10 particles alive   status bit 5: any alive
+     v6 (U-R-R v126): LIGHTS - 16 coloured point lights, summed in each 8 x 8 cell of NT_B (under the glow,
+                over the particles).  Light n at 0x80 + 4n.  NOT committed: they take effect at once - write
+                them while the engine is not busy (the game writes all 64 every frame, between RENDERs):
+     0x80+4n    x, y (screen px, signed)
+     0x82+4n    R (bits 7:0, px; 0 = off) | colour (bits 13:12: 0 warm, 1 blue-white, 2 gold, 3 red)
+     0x83+4n    k = level * 4096 / R^2 (level up to 15): a cell's light is (R^2 - d^2) * k >> 12, the cell's
+                the sum of its lights (to 15), in the colour of its brightest: tile LIGHT_BASE + level - 1
+                (15 dithered steps in colours 8-15 of the palette of its colour)
+     status bit 6: a light is on
    The 68000 copies the outputs to VRAM; the tiles they name (rings, glow) are its library
    (tools/make_fxlib.py: RING_BASE, GLOW_BASE, TXT_BASE below must match). */
 #pragma once
@@ -45,7 +54,7 @@
 
 namespace urrfx {
 
-enum { RING_BASE = 32, GLOW_BASE = 496, TXT_BASE = 544, PART_BASE = 736, NREG = 128, NPART = 512, VERSION = 5 };   /* v3 (U-R-R v110): rounder rings; v4 (v120): letters of their own; v5 (v123): solar storms */
+enum { RING_BASE = 32, GLOW_BASE = 496, TXT_BASE = 544, PART_BASE = 736, LIGHT_BASE = 800, NREG = 128, NPART = 512, NLIGHT = 16, VERSION = 6 };   /* v3 (U-R-R v110): rounder rings; v4 (v120): letters of their own; v5 (v123): solar storms */
 enum { NT_W = 40, NT_H = 28, NT_N = NT_W * NT_H, HS_N = 448, TXT_W = 3072 };
 
 static const signed char sin8s_tab[256] = {
@@ -94,6 +103,7 @@ struct Engine {
     Part P[NPART];
     uint16_t pptr, lfsr, lastseq, hits, alive;
     uint8_t pmap[NT_N];
+    uint16_t lt[4 * NLIGHT];                         /* v6: the lights (live) */
 
     void reset() { memset(this, 0, sizeof *this); lfsr = 0xACE1; }
     Engine() { reset(); }
@@ -103,9 +113,10 @@ struct Engine {
     bool glow_on() const { return reg[0x22] && reg[0x23]; }
     bool ripple_on() const { return reg[0x28] && reg[0x25]; }
     bool text_on() const { return reg[0x2A] != 0; }
+    bool lights_on() const { for (int n = 0; n < NLIGHT; n++) if (lt[4 * n + 2] & 255) return true; return false; }
 
     uint16_t status() const {
-        return (uint16_t)((renders & 255) << 8 | (alive != 0) << 5 | text_on() << 4 | ripple_on() << 3 | glow_on() << 2 | rings_on() << 1);
+        return (uint16_t)((renders & 255) << 8 | lights_on() << 6 | (alive != 0) << 5 | text_on() << 4 | ripple_on() << 3 | glow_on() << 2 | rings_on() << 1);
     }
 
     /* a 16-bit cartridge read at a byte address in 0x3F8000-0x3FFFFF */
@@ -132,7 +143,9 @@ struct Engine {
         lastcmd = v; ncmd++;
         if (v < 0x100) sel = (uint8_t)v;
         else if (v < 0x200) lo = (uint8_t)v;
-        else if (v < 0x300) { if (sel < NREG) live[sel] = (uint16_t)((v & 255) << 8 | lo); sel++; }
+        else if (v < 0x300) { uint16_t w = (uint16_t)((v & 255) << 8 | lo);
+                              if (sel < NREG) live[sel] = w; else if (sel < 0xC0) lt[sel - 0x80] = w;   /* v6 */
+                              sel++; }
         else if (v == 0x300) render();
         else if (v == 0x301) { memset(nta, 0, sizeof nta); memset(ntb, 0, sizeof ntb); memset(hs, 0, sizeof hs); memset(txt, 0, sizeof txt);
                                for (int i = 0; i < NPART; i++) P[i].life = 0; alive = 0; }
@@ -225,6 +238,23 @@ struct Engine {
                         if (l) e = (uint16_t)(GLOW_BASE + l - 1);
                     }
                 }
+            }
+            if (!e) {                                                       /* v6: the lights */
+                int sum = 0, best = 0, bpal = 0, px = cx * 8 + 4, py = cy * 8 + 4;
+                for (int n = 0; n < NLIGHT; n++) {
+                    int Rr = lt[4 * n + 2] & 255;
+                    if (!Rr) continue;
+                    int dx = px - s16(lt[4 * n]), dy = py - s16(lt[4 * n + 1]);
+                    if (dx <= -256 || dx >= 256 || dy <= -256 || dy >= 256) continue;
+                    int d2 = dx * dx + dy * dy, r2 = Rr * Rr;
+                    if (d2 >= r2) continue;
+                    int c = (int)(((uint32_t)(r2 - d2) * lt[4 * n + 3]) >> 12);
+                    if (c > 15) c = 15;
+                    sum += c;
+                    if (c > best) { best = c; bpal = (lt[4 * n + 2] >> 12) & 3; }
+                }
+                if (sum > 15) sum = 15;
+                if (sum) e = (uint16_t)(bpal << 13 | (LIGHT_BASE + sum - 1));
             }
             if (!e && pmap[cy * NT_W + cx]) e = (uint16_t)(PART_BASE + pmap[cy * NT_W + cx] - 1);   /* v5 */
             ntb[cy * NT_W + cx] = e;
