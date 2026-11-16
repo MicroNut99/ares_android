@@ -58,6 +58,7 @@ inline auto Scheduler::power(Thread& thread) -> void {
   for(auto& thread : _threads) {
     thread->_clock = thread->_uniqueID;
   }
+  _reducedNs = 0;
 }
 
 inline auto Scheduler::enter(Mode mode) -> Event {
@@ -104,6 +105,7 @@ inline auto Scheduler::exit(Event event) -> void {
   for(auto& thread : _threads) {
     thread->_clock -= reduce;
   }
+  _reducedNs += reduce / NanoUnits;
 
   //return to the thread that entered the scheduler originally.
   _event = event;

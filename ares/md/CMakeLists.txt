@@ -237,6 +237,12 @@ target_sources(ares PRIVATE ${_dracx_src})
 set_source_files_properties(${_dracx_src} TARGET_DIRECTORY ares PROPERTIES LANGUAGE CXX
     COMPILE_DEFINITIONS TRACECHECK SKIP_UNITY_BUILD_INCLUSION ON)
 
+# CD32X cart compositor (CD32X-BootCamp cartfx/, fpga-cartfx branch): the 'cartfx-hur' / 'cartfx-oj' / 'cartfx-stx'
+# configurations' reference model (model/cartfx.c, the C the engine was checked against in Verilator), compiled as C++
+set(_cartfx_src ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/cartfx/cartfx.c)
+target_sources(ares PRIVATE ${_cartfx_src})
+set_source_files_properties(${_cartfx_src} TARGET_DIRECTORY ares PROPERTIES LANGUAGE CXX SKIP_UNITY_BUILD_INCLUSION ON)
+
 # Gate of Thunder CD32X (docs/37): the Mega EverDrive PRO's 'gotx' model - the same machine with GoT's timer
 # (tools/m2host/gotm.c), each file through a wrapper that puts it in namespace gotx (its models share dracx's names)
 set(_gotx ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/gotx)

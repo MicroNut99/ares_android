@@ -1,3 +1,7 @@
+ares CD32X v1.11 - the CD32X cart compositor (cartfx): Hurrican's FPGA effects (16 Nov 2026)
+
+- v1.11: **the CD32X cart compositor, `cartfx`, modelled** (it was on the branch `fpga-cartfx`). One engine on the Mega EverDrive PRO's FPGA for Hurrican, Jazz Jackrabbit REV and SuperTux REV (CD32X-BootCamp `cartfx/`): with its `mega-pro.rbf` beside the launcher ares answers the engine's window with its reference model, so Hurrican's FX builds show their effects (the glows, the lightning, the shield, the steam) instead of falling back to plain drawing. Known by SHA-256: v2.1-v2.3 for the three games, and Hurrican's v3 and v4 (v4 is the core that passes CFXTEST on the console). Traps `[cartfx TRAP]`; `CARTFX_TRACE=1`. A `SEGA SSF` 32X ROM goes into the EverDrive without a disc too. A green run here is never a console pass.
+
 ares CD32X v1.10 - U-R-R's lights, gun sparks and tracers (16 Nov 2026)
 
 - v1.10: **U-R-R's cart FPGA engine model updated to its version 6** (U-R-R v126 on): 16 coloured lights the engine sums into plane B behind everything - the muzzle flash, the player's shots (blue-white), homing missiles (gold), explosions (gold, then warm), enemy shots and black holes (red); sparks thrown off every hit; U-R-R v127's tracers (every 7th shot) light red-hot and shed sparks. ares drew none of it before (its model was version 5); U-R-R v126 on needs version 6 for them, and plays without them on an older model.
