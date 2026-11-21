@@ -127,8 +127,8 @@ struct EverDrivePro : Interface {
     //Tomba CD32X's engine (MicroNut99/Tomba_CD32X fpga/, docs/02): build 10, 21 Nov 2026 - TBTEST's frames right on the
     //console under the slave SH2's reads (rbf md5 d083a27c)
     {"934271eb27c3381af811ce44d9d966378cbc7b68834ef96aef33afcc20eb5840", "Tomba CD32X engine build 10", "tomba"},
-    //build 11 (Tomba_CD32X docs/09): + window 3's bank set by the SH2 ('tomba11'; its rbf by a mega-pro.rbf.ares until
-    //the owner's Quartus build gives its SHA-256)
+    //build 11 (Tomba_CD32X docs/09, 21 Nov 2026): + window 3's bank set by the SH2 (rbf md5 c6f76215)
+    {"60334c6b547eb9190d395ae0a43b29f0e707219e4b307a0962f32e76c565e0be", "Tomba CD32X engine build 11", "tomba11"},
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
