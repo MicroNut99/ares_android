@@ -127,10 +127,12 @@ struct EverDrivePro : Interface {
     //Tomba CD32X's engine (MicroNut99/Tomba_CD32X fpga/, docs/02): build 10, 21 Nov 2026 - TBTEST's frames right on the
     //console under the slave SH2's reads (rbf md5 d083a27c)
     {"934271eb27c3381af811ce44d9d966378cbc7b68834ef96aef33afcc20eb5840", "Tomba CD32X engine build 10", "tomba"},
+    //build 11 (Tomba_CD32X docs/09): + window 3's bank set by the SH2 ('tomba11'; its rbf by a mega-pro.rbf.ares until
+    //the owner's Quartus build gives its SHA-256)
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
-                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba"};    //the models this board has (more as cores are added)
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -578,6 +580,9 @@ struct EverDrivePro : Interface {
   //and model draw. Its SRAM starts with a pattern, as the cart's starts with garbage. A green run here is never a
   //console pass.
   bool tbOn = false;
+  bool tbW3 = false;             //build 11 ('tomba11'): window 3's bank from the SH2 (docs/09)
+  bool tbW3On = false;
+  n5 tbW3Bank = 3;
   tomba_t tb = {};
   std::vector<uint16_t> tbSram;
   u16 tbQ[1024] = {};
@@ -594,8 +599,10 @@ struct EverDrivePro : Interface {
   }
   auto tbReset() -> void {
     tb.psram_rd = &EverDrivePro::tbPsramRd; tb.psram_wr = &EverDrivePro::tbPsramWr; tb.sram = tbSram.data(); tb.ctx = this;
-    tomba_reset(&tb, TB_KEY1, TB_ID);
+    tomba_reset(&tb, TB_KEY1, tbW3 ? 0xC5 : TB_ID);
     tbQr = tbQn = 0; tbBusy = 0; tbSaid = false; tbErrSaid = 0;
+    if(tbW3On) invalidate(3 << 19, 0x80000);
+    tbW3On = false; tbW3Bank = 3;
   }
   //a word into the engine at the time it takes it; it is busy for the word's estimate from then
   auto tbFeed(u16 w, u64 start) -> void {
@@ -634,6 +641,10 @@ struct EverDrivePro : Interface {
       else if(tbQn == 1024) { tb.lost++; tbTrap(0, {"a word lost: the cart's queue was full (1,024 words) - wait while the status says FULL (bit 1)"}); }
       else { tbQ[(tbQr + tbQn) & 1023] = w; tbQn++; }
     } else if(w >= 1 && w < 16) { tomba_read(&tb, a, &v); value = v; return true; }   //the latch, the counters
+    else if(tbW3 && w >= 0x1000 && w < 0x1040) {   //(build 11: window 3's bank, at once)
+      bool on = !(w & 0x20); n5 b = w & 31;
+      if(on != tbW3On || (on && b != tbW3Bank)) { tbW3On = on; tbW3Bank = b; invalidate(3 << 19, 0x80000); }
+    }
     v = tomba_status(&tb);
     if(tbQn || tbBusy > now) v |= TB_ST_BUSY;
     if(tbQn >= 768) v |= TB_ST_FULL;
@@ -651,7 +662,8 @@ struct EverDrivePro : Interface {
     }
     dracx = rbfModel == "dracx";
     gotx = rbfModel == "gotx";
-    tbOn = rbfModel == "tomba";
+    tbOn = rbfModel == "tomba" || rbfModel == "tomba11";
+    tbW3 = rbfModel == "tomba11";
     if(tbOn) {
       tbSram.resize(0x40000);
       for(u32 n : range(0x40000)) tbSram[n] = (u16)(n * 0x9e37 + 0x5a5a);
@@ -721,6 +733,7 @@ struct EverDrivePro : Interface {
   //0x400000 (a Mega CD booted its disc) or through the 32X (0x880000, 0x900000, the SH2's 0x02000000)
   auto offset(n24 address) const -> u32 {
     n22 local = address;
+    if(tbW3On && (local >> 19) == 3) return (u32)tbW3Bank << 19 | (u32)(n19)local;   //(Tomba build 11, docs/09)
     return (u32)bank[local >> 19] << 19 | (u32)(n19)local;
   }
 
@@ -785,6 +798,7 @@ struct EverDrivePro : Interface {
         cfxTrap(1, {"the 68000 wrote the cart (bank ", offset(address) >> 19, ") while the engine composes - it reads the PSRAM then: no GO before a load ends"});
     }
     if(!writeEnable || writeProtect) return;
+    if(tbW3On && ((u32)(n22)address >> 19) == 3) return;   //(Tomba build 11: window 3 takes no writes while it shows its bank)
     u32 word = offset(address) >> 1;
     if(dracx && word >> 18 == bank[7]) dxWrite7((word & 0x3ffff) << 1, upper, lower, data);   //(the bank's memory too)
     if(upper) ram[word].byte(1) = data.byte(1);
