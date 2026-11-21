@@ -102,7 +102,7 @@ it models what the configuration is.
 | none | the built-in SSF mapper, as before |
 | krikzz's `map_ssf` (sha256 `00bb72f4...`; also what Quartus 25.1 Lite builds from his sources, byte for byte) | the SSF mapper - the same run, picture for picture (checked: Metal Slug v46, frame 2400 identical with and without it) |
 | krikzz's `map_smd`, `map_smd_cd`, `map_svp`, `map_mcd`, `SE` | recognised, not modelled: a warning, and ares runs the SSF mapper (the console would run that file) |
-| one of our own, with a `mega-pro.rbf.ares` beside it (one line: the model's name) | that model, when this build has it; otherwise the warning. Models so far: `ssf`, `dracx` (Dracula X CD32X), `gotx` (Gate of Thunder CD32X) |
+| one of our own, with a `mega-pro.rbf.ares` beside it (one line: the model's name) | that model, when this build has it; otherwise the warning. Models so far: `ssf`, `dracx` (Dracula X CD32X), `gotx` (Gate of Thunder CD32X), `tomba` (Tomba CD32X) |
 | anything else | the warning; the SSF mapper |
 
 The log says what it found: `[EverDrive PRO] mega-pro.rbf: krikzz map_ssf (the extended SSF mapper) (sha256
@@ -134,6 +134,19 @@ with the `mega-pro.rbf` from its folder - so the engine's console test runs as o
 for the model's clock: a u64 of `Thread::Second` units holds only two seconds. Hurrican's v3 and v4 cores
 (15 Nov 2026; v4 is the one that passes CFXTEST on the console) are known as `cartfx-hur` too: the model answers
 their diagnostic counters 10-14 with 0.
+
+**Tomba CD32X's engine, `tomba` (21 Nov 2026; on the branch `tomba-engine`).** A PS1 drawing machine beside krikzz's
+`map_ssf` (MicroNut99/Tomba_CD32X `fpga/tomba_core.sv`): a GTE, the game's model drawing loops, DrawOTag's walk, the
+PS1 GPU's decoder and a rasteriser into two 8-bit 320 x 224 pictures the SH2 copies out. Build 10 is known by its
+SHA-256 (`934271eb27c3381a...`, model `tomba`). The model (`ares/md/cartridge/board/tomba/`) is Tomba's own C
+(`tools/m1`: tgte.c, tmodel.c, tgpu.c), checked bit for bit against the Verilog in Tomba's `tools/m1/rtl/tb_core.cpp
+SHADOW=1` (frames, model draws, uploads, every latch / counter / window read). After the key (reads of 0x3F0000 + 2 x
+0x4346, 0x5442, 0x0C01 in that order) SH2 reads of 0x3E0000-0x3FFFFF are the engine's; queued words wait 1,024 deep
+(FULL from 768) while the engine is busy for its estimate (50 MHz clocks, within 1-3 % of the Verilog alone) x
+`TOMBA_SPEED` percent (100 by default). Traps `[tomba TRAP]`: words lost to a full queue, a walk past 1,000,000 nodes.
+`TOMBA_TRACE=1` prints each command. Tomba's console test runs as on the console: `ares-headless --game TBTEST14D.32X
+--machine 32x --ramcart-type everdrive --ramcart ed.ram --frames 1500` with build 10's `mega-pro.rbf` beside it
+(PICTURE RIGHT, WRONG 0, the slave SH2 reading throughout - as on the console, 21 Nov 2026).
 
 **U-R-R's engine (in main since v1.7; engine version 3 since v1.8; version 5 since 12 Nov 2026; version 6 since 16 Nov 2026).** U-R-R (MicroNut99/rev32xcd, `cartridge/`) is a plain 32X cartridge
 ROM, not a launcher: its `mega-pro.rbf` is krikzz's `map_smd` plus U-R-R's engine, which answers reads of

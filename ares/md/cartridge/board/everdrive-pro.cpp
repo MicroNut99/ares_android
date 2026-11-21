@@ -124,10 +124,13 @@ struct EverDrivePro : Interface {
     {"21a53854c48359c8cc506c1e7eb8036ebb3f5dd00f4138fccfb965d5896927a9", "cartfx v2.1 for Hurrican CD32X", "cartfx-hur-v22"},
     {"74d8b8b5e840222111b1ca96d95186912da063e1d0fa19f313ba8b66b884ac4e", "cartfx v2.1 for Jazz CD32X REV", "cartfx-oj-v22"},
     {"768bcc63ed39b01e62f72ba4c3819b3a06f5938c350a14c3bad1c82d96156c1a", "cartfx v2.1 for SuperTux CD32X REV", "cartfx-stx-v22"},
+    //Tomba CD32X's engine (MicroNut99/Tomba_CD32X fpga/, docs/02): build 10, 21 Nov 2026 - TBTEST's frames right on the
+    //console under the slave SH2's reads (rbf md5 d083a27c)
+    {"934271eb27c3381af811ce44d9d966378cbc7b68834ef96aef33afcc20eb5840", "Tomba CD32X engine build 10", "tomba"},
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
-                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22"};    //the models this board has (more as cores are added)
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -205,10 +208,10 @@ struct EverDrivePro : Interface {
   //  kind 2: the PC Engine CPU runs in the I/O page (below $2000) after having run above it (gotx: the last 64 PCs)
   //  kind 3: SELECT asked by the SH2 (the cores never give it: RUN + SELECT is the PC Engine's soft reset)
   //  kind 4: the backup RAM differs from the cart's (the cart's sram is uninitialised)
-  enum TrapCore : u32 { TrapDracx, TrapGotx, TrapCartfx, TrapCores };
+  enum TrapCore : u32 { TrapDracx, TrapGotx, TrapCartfx, TrapTomba, TrapCores };
   inline static u64 trapN[TrapCores][8] = {};
   static auto coreTrap(u32 core, u32 kind, const string& what) -> void {
-    static const char* names[TrapCores] = {"dracx", "gotx", "cartfx"};
+    static const char* names[TrapCores] = {"dracx", "gotx", "cartfx", "tomba"};
     u64 n = ++trapN[core][kind & 7];
     if(n == 1) print("[", names[core], " TRAP] ", what, "\n");
     else if((n & (n - 1)) == 0) print("[", names[core], " TRAP] (x", n, ") ", what, "\n");
@@ -560,6 +563,84 @@ struct EverDrivePro : Interface {
     return true;
   }
 
+  //Tomba CD32X's engine (MicroNut99/Tomba_CD32X fpga/tomba_core.sv; docs/02): the 'tomba' configuration (build 10's
+  //.rbf by its SHA-256 above, or a mega-pro.rbf.ares naming it) - a PS1 drawing machine beside krikzz's map_ssf: the
+  //GTE, the game's model drawing loops, DrawOTag and the GPU, drawing into two 8-bit pictures in the cart's SRAM that
+  //the SH2 copies out through a window. krikzz's mapper until the key; then SH2 reads of cart 0x3E0000-0x3FFFFF are
+  //the engine's, answered by its model (board/tomba/tomba.c: bit for bit what the Verilog does in Tomba's
+  //tools/m1/rtl/tb_core.cpp SHADOW=1 - frames, 1,290 model draws, uploads: every memory word and read the same).
+  //Its time: each command word keeps the engine busy for the model's estimate (tomba_t est, 50 MHz clocks, within
+  //2.5 % of the Verilog on the measured frames) x TOMBA_SPEED percent (100 by default), and the words sent meanwhile
+  //wait in the cart's queue (1,024 words, FULL from 768). The engine reads and writes the cart's PSRAM (the PS1 RAM's
+  //pages, VRAM from word 0x600000) - here the cart's 16 MB itself. Traps ("[tomba TRAP]"): words lost to a full queue;
+  //a walk past 1,000,000 nodes (an ordering table that never ends: the cart would never be idle); an MVMVA form the
+  //cart does not do as the PS1 (its matrix not RT, its vector not TR or V0/IR). TOMBA_TRACE=1 prints each DrawOTag
+  //and model draw. Its SRAM starts with a pattern, as the cart's starts with garbage. A green run here is never a
+  //console pass.
+  bool tbOn = false;
+  tomba_t tb = {};
+  std::vector<uint16_t> tbSram;
+  u16 tbQ[1024] = {};
+  u32 tbQr = 0, tbQn = 0;
+  u64 tbBusy = 0;                //busy until this time (cfxNow(): nanoseconds)
+  bool tbSaid = false;
+  u32 tbErrSaid = 0;
+  auto tbTrap(u32 kind, const string& what) -> void { coreTrap(TrapTomba, kind, what); }
+  static auto tbPsramRd(void* ctx, uint32_t w) -> uint16_t { return (u16)((EverDrivePro*)ctx)->ram[w & 0x7fffff]; }
+  static auto tbPsramWr(void* ctx, uint32_t w, uint16_t v) -> void { ((EverDrivePro*)ctx)->ram[w & 0x7fffff] = v; }
+  static auto tbPercent() -> u64 {
+    static u64 p = [] { auto e = getenv("TOMBA_SPEED"); return e && atoi(e) > 0 ? (u64)atoi(e) : (u64)100; }();
+    return p;
+  }
+  auto tbReset() -> void {
+    tb.psram_rd = &EverDrivePro::tbPsramRd; tb.psram_wr = &EverDrivePro::tbPsramWr; tb.sram = tbSram.data(); tb.ctx = this;
+    tomba_reset(&tb, TB_KEY1, TB_ID);
+    tbQr = tbQn = 0; tbBusy = 0; tbSaid = false; tbErrSaid = 0;
+  }
+  //a word into the engine at the time it takes it; it is busy for the word's estimate from then
+  auto tbFeed(u16 w, u64 start) -> void {
+    tomba_word(&tb, w);
+    u64 clocks = tb.est * tbPercent() / 100;
+    tbBusy = start + clocks * 20;   //(50 MHz)
+    if(getenv("TOMBA_TRACE") && ((w & 0x607f) == 0x400d || (w & 0x607f) == 0x400b))
+      print("[tomba] ", (w & 0x7f) == 13 ? string{"DrawOTag: "} : string{"model draw: "}, (w & 0x7f) == 13 ? string{tb.nodes, " nodes, "} : string{},
+        clocks / 50, " us from ", start / 1000, " us\n");
+    if(tb.err & ~tbErrSaid & 1) tbTrap(1, {"a DrawOTag walked past 1,000,000 nodes: an ordering table that never ends (bit 23 of a link) - the cart would stay busy for ever"});
+    if(tb.err & ~tbErrSaid & 2) tbTrap(2, {"an MVMVA the cart does not do as the PS1: its matrix is RT only, its vector TR only, V1 / V2 read as V0 (tgeo.sv)"});
+    tbErrSaid |= tb.err; tb.err = 0;
+  }
+  auto tbDrain(u64 now) -> void {
+    while(tbQn && tbBusy <= now) {
+      u16 w = tbQ[tbQr]; tbQr = (tbQr + 1) & 1023; tbQn--;
+      tbFeed(w, tbBusy);
+    }
+  }
+  //an SH2 read of cart 0x3E0000-0x3FFFFF: true when the engine answers it
+  auto tbRead(u32 a, n16& value) -> bool {
+    a &= 0x3ffffe;
+    uint16_t v;
+    if(!tb.on) {   //off: the mapper answers; the engine watches for its key
+      if(!tomba_read(&tb, a, &v)) return false;
+      tbQr = tbQn = 0; tbBusy = 0;
+      if(!tbSaid) { tbSaid = true; print("[EverDrive PRO] tomba: the key - the engine is on (ID ", hex(tb.id, 2L), ")\n"); }
+      value = v; return true;
+    }
+    u64 now = cfxNow();
+    tbDrain(now);
+    if(a < TB_CMD_BASE) { tomba_read(&tb, a, &v); value = v; return true; }   //the shown picture's window
+    u16 w = (a - TB_CMD_BASE) >> 1;
+    if(tomba_queued(w)) {
+      if(!tbQn && tbBusy <= now) tbFeed(w, now);
+      else if(tbQn == 1024) { tb.lost++; tbTrap(0, {"a word lost: the cart's queue was full (1,024 words) - wait while the status says FULL (bit 1)"}); }
+      else { tbQ[(tbQr + tbQn) & 1023] = w; tbQn++; }
+    } else if(w >= 1 && w < 16) { tomba_read(&tb, a, &v); value = v; return true; }   //the latch, the counters
+    v = tomba_status(&tb);
+    if(tbQn || tbBusy > now) v |= TB_ST_BUSY;
+    if(tbQn >= 768) v |= TB_ST_FULL;
+    value = v;
+    return true;
+  }
+
   auto load() -> void override {
     identifyRbf();
     cfxOn = rbfModel.beginsWith("cartfx-");
@@ -570,6 +651,12 @@ struct EverDrivePro : Interface {
     }
     dracx = rbfModel == "dracx";
     gotx = rbfModel == "gotx";
+    tbOn = rbfModel == "tomba";
+    if(tbOn) {
+      tbSram.resize(0x40000);
+      for(u32 n : range(0x40000)) tbSram[n] = (u16)(n * 0x9e37 + 0x5a5a);
+      tbReset();
+    }
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
     //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND
@@ -661,6 +748,10 @@ struct EverDrivePro : Interface {
     if(cfxOn && !cpu.active() && (u32)(n22)address >= 0x3e0000) {   //(fpga-cartfx: the compositor's window, once keyed)
       n16 v;
       if(cfxRead((u32)(n22)address, v)) return v;
+    }
+    if(tbOn && !cpu.active() && (u32)(n22)address >= 0x3e0000) {   //(Tomba CD32X: the engine's window, once keyed)
+      n16 v;
+      if(tbRead((u32)(n22)address, v)) return v;
     }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
@@ -771,6 +862,7 @@ struct EverDrivePro : Interface {
 
   auto power(bool reset) -> void override {
     if(cfxOn) cfxReset();   //(fpga-cartfx: off until the key)
+    if(tbOn) tbReset();     //(Tomba CD32X: off until the key)
     dx = {};   //(dracx: the engine at its reset until the start read)
     gx = {};   //(gotx: the same; off at the console's reset too, docs/36)
     for(u32 n : range(8)) bank[n] = n;

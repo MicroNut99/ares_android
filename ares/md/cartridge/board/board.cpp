@@ -2,6 +2,7 @@
 #include "dracx/dxm.h"   //DraculaX CD32X (docs/101): the EverDrive's 'dracx' engine, the PC Engine CD machine
 #include "gotx/gotm.h"   //Gate of Thunder CD32X (docs/37): the EverDrive's 'gotx' engine, the same machine with its timer
 #include "cartfx/cartfx.h"   //the CD32X cart compositor (CD32X-BootCamp cartfx/): Hurrican, Jazz REV, SuperTux REV
+#include "tomba/tomba.h"     //Tomba CD32X's engine (MicroNut99/Tomba_CD32X fpga/): the PS1 drawing machine
 namespace Board {
 
 //U-R-R (MicroNut99/rev32xcd cartridge/fpga): the Mega EverDrive PRO FPGA core's engine, when the

@@ -245,6 +245,13 @@ target_sources(ares PRIVATE ${_cartfx_src})
 set_source_files_properties(${_cartfx_src} TARGET_DIRECTORY ares PROPERTIES LANGUAGE CXX SKIP_UNITY_BUILD_INCLUSION ON
     SKIP_PRECOMPILE_HEADERS ON)
 
+# Tomba CD32X's engine (MicroNut99/Tomba_CD32X fpga/): the 'tomba' configuration's model (board/tomba/tomba.c, bit for bit
+# what tomba_core.sv does in Tomba's tb_core.cpp SHADOW=1), compiled as C++, no precompiled header (as cartfx.c)
+set(_tomba_src ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/tomba/tomba.c)
+target_sources(ares PRIVATE ${_tomba_src})
+set_source_files_properties(${_tomba_src} TARGET_DIRECTORY ares PROPERTIES LANGUAGE CXX SKIP_UNITY_BUILD_INCLUSION ON
+    SKIP_PRECOMPILE_HEADERS ON)
+
 # Gate of Thunder CD32X (docs/37): the Mega EverDrive PRO's 'gotx' model - the same machine with GoT's timer
 # (tools/m2host/gotm.c), each file through a wrapper that puts it in namespace gotx (its models share dracx's names)
 set(_gotx ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/gotx)
