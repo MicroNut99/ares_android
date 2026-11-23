@@ -137,10 +137,12 @@ struct EverDrivePro : Interface {
     {"e19146bec16c70ce69a69a38ec371f309e6f8638c94e4f19761a11ccbdd849ed", "Mega Man X CD32X fit 7", "mmx7"},
     //fit 8 (MegaManX_CD32X docs/08, 22 Nov 2026): + the song word (rbf md5 b165b205)
     {"13f1103661d46b2329393db2799290ea2703a9abea767f7960b10ae33a10e063", "Mega Man X CD32X fit 8", "mmx8"},
+    //fit 9 (MegaManX_CD32X docs/11, 23 Nov 2026): + each picture as runs for the 32X VDP's mode 3 (rbf md5 875d31d1)
+    {"bb5db4e23b22e6bafc4d27c6cf2e04e00587dc0453b892c5e0bfb1317e08cd4c", "Mega Man X CD32X fit 9", "mmx9"},
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
-                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11", "mmx", "mmx5", "mmx7", "mmx8"};    //the models this board has (more as cores are added)
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11", "mmx", "mmx5", "mmx7", "mmx8", "mmx9"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -592,7 +594,8 @@ struct EverDrivePro : Interface {
   bool mxOn = false;                       //rbfModel == "mmx" (fit 6) or "mmx5" (fit 5)
   bool mxFit6 = false;
   bool mxFit7 = false;
-  bool mxFit8 = false;                      //(fit 8, docs/08: register word 7 the song word; the sound log filled)
+  bool mxFit8 = false;
+  bool mxFit9 = false;                      //(fit 9, docs/11: the picture as runs too, at + 0xE400; their count at + 0xE202)                      //(fit 8, docs/08: register word 7 the song word; the sound log filled)
   u16 mxMus = 0, mxLog[512] = {}; u32 mxLogWp = 0;                      //(fit 7, docs/07: 8 bits a pixel, its palette at + 0xE000, the count at + 0xE200)
   struct Mx {
     bool armed = false, on = false; u16 cfgHi = 0;
@@ -668,6 +671,23 @@ struct EverDrivePro : Interface {
         d[i >> 1] |= i & 1 ? k : k << 8;
       }
       d[0x7100] = (ovf ? 0x100 : 0) | (n & 0xff);
+      if(mxFit9) {   //(the engine's runs: line y's table entry 0x100 + the words before it; 32 border pixels, its runs of at most
+                     // 256, 32 border pixels; past 0x6D00 words the count's bit 15 and no more words)
+        u32 rw = 0; bool rov = false;
+        auto put = [&](u16 w) { if(rov) return; d[0x7300 + rw] = w; if(++rw == 0x6d00) rov = true; };
+        for(u32 y : range(224)) {
+          d[0x7200 + y] = 0x100 + rw; put(0x1f00);
+          u8 rc = 0; u32 rl = 0;
+          for(u32 x : range(256)) {
+            u16 w = d[(y * 256 + x) >> 1]; u8 k = x & 1 ? w & 0xff : w >> 8;
+            if(x == 0) { rc = k; rl = 0; }
+            else if(k == rc && rl != 255) rl++;
+            else { put(rl << 8 | rc); rc = k; rl = 0; }
+          }
+          put(rl << 8 | rc); put(0x1f00);
+        }
+        d[0x7101] = (rov ? 0x8000 : 0) | rw;
+      }
     }
     mx.frames++; mx.frontFrame = mx.frames; mx.front = mx.wbuf;
     for(u32 k : range(3)) if(k != mx.front && k != mx.lock) { mx.wbuf = k; break; }
@@ -683,7 +703,7 @@ struct EverDrivePro : Interface {
       dxSync();
       if(off >> 1 == 0x40080 >> 1 && !mx.on) mxStart();
       u32 k = off >> 1 & 7;
-      value = (n16)(k == 0 ? (u32)mx.frontFrame : k == 1 ? mx.front : k == 2 ? (u32)mx.frames : k == 3 ? mxLogWp : k == 4 ? 0x4d58u : k == 6 && mxFit8 ? 0x0608u
+      value = (n16)(k == 0 ? (u32)mx.frontFrame : k == 1 ? mx.front : k == 2 ? (u32)mx.frames : k == 3 ? mxLogWp : k == 4 ? 0x4d58u : k == 6 && mxFit9 ? 0x0609u : k == 6 && mxFit8 ? 0x0608u
                     : k == 6 && mxFit7 ? 0x0607u : k == 6 && mxFit6 ? 0x0606u : k == 7 && mxFit8 ? (u32)mxMus : 0u);
       return true;
     }
@@ -809,10 +829,11 @@ struct EverDrivePro : Interface {
     dracx = rbfModel == "dracx";
     gotx = rbfModel == "gotx";
     tbOn = rbfModel == "tomba" || rbfModel == "tomba11";
-    mxOn = rbfModel == "mmx" || rbfModel == "mmx5" || rbfModel == "mmx7" || rbfModel == "mmx8";
-    mxFit6 = rbfModel == "mmx" || rbfModel == "mmx7" || rbfModel == "mmx8";
-    mxFit7 = rbfModel == "mmx7" || rbfModel == "mmx8";
-    mxFit8 = rbfModel == "mmx8";   //(fit 5, 'mmx5': no hold, reset or poke; register word 6 is its held-tick count)
+    mxOn = rbfModel == "mmx" || rbfModel == "mmx5" || rbfModel == "mmx7" || rbfModel == "mmx8" || rbfModel == "mmx9";
+    mxFit6 = rbfModel == "mmx" || rbfModel == "mmx7" || rbfModel == "mmx8" || rbfModel == "mmx9";
+    mxFit7 = rbfModel == "mmx7" || rbfModel == "mmx8" || rbfModel == "mmx9";
+    mxFit8 = rbfModel == "mmx8" || rbfModel == "mmx9";
+    mxFit9 = rbfModel == "mmx9";   //(fit 5, 'mmx5': no hold, reset or poke; register word 6 is its held-tick count)
     if(mxOn) mxPic.assign(3 * 57344, 0);
     tbW3 = rbfModel == "tomba11";
     if(tbOn) {
