@@ -129,10 +129,11 @@ struct EverDrivePro : Interface {
     {"934271eb27c3381af811ce44d9d966378cbc7b68834ef96aef33afcc20eb5840", "Tomba CD32X engine build 10", "tomba"},
     //build 11 (Tomba_CD32X docs/09, 21 Nov 2026): + window 3's bank set by the SH2 (rbf md5 c6f76215)
     {"60334c6b547eb9190d395ae0a43b29f0e707219e4b307a0962f32e76c565e0be", "Tomba CD32X engine build 11", "tomba11"},
+    //build 12 (Tomba_CD32X docs/15-16, 23 Nov 2026): the PS1's CPU in the engine (tmips), the model unit gone (rbf md5 6aedb692)
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
-                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11"};    //the models this board has (more as cores are added)
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11", "tomba12"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -581,6 +582,16 @@ struct EverDrivePro : Interface {
   //console pass.
   bool tbOn = false;
   bool tbW3 = false;             //build 11 ('tomba11'): window 3's bank from the SH2 (docs/09)
+  //build 12 ('tomba12', Tomba_CD32X docs/15-16): the PS1's CPU in the engine (board/tomba/tmips.c, fpga/tmips.sv's
+  //instructions and clocks: in lockstep with Mednafen on 6,954,182 of the game's instructions through this model's
+  //command port, tools/cpu/tb_model.c). It runs to the time of each console access to the cart (tbCpu): nothing else
+  //sees it. The queue keeps its order; a word waits only for what the cart's would wait for - a GP0 word and DrawOTag
+  //for the drawing (tbBusy), any word for a ClearOTagR or a PS1 RAM word before it (tbCsBusy). Traps: a register
+  //written or the CPU set going while it runs (the cart ignores it). TOMBA_CPUTRACE=1: each stop, why and where.
+  bool tbB12 = false;
+  u64 tbCpuAt = 0;               //the CPU has run to this time (cfxNow(): nanoseconds)
+  u64 tbCsBusy = 0;              //(build 12) a command still running (ClearOTagR, a PS1 RAM word) until this time
+  u64 tbStops = 0;
   bool tbW3On = false;
   n5 tbW3Bank = 3;
   tomba_t tb = {};
@@ -599,13 +610,43 @@ struct EverDrivePro : Interface {
   }
   auto tbReset() -> void {
     tb.psram_rd = &EverDrivePro::tbPsramRd; tb.psram_wr = &EverDrivePro::tbPsramWr; tb.sram = tbSram.data(); tb.ctx = this;
-    tomba_reset(&tb, TB_KEY1, tbW3 ? 0xC5 : TB_ID);
-    tbQr = tbQn = 0; tbBusy = 0; tbSaid = false; tbErrSaid = 0;
+    tomba_reset(&tb, TB_KEY1, tbB12 ? TB_ID12 : tbW3 ? 0xC5 : TB_ID);
+    tbQr = tbQn = 0; tbBusy = 0; tbSaid = false; tbErrSaid = 0; tbCpuAt = 0; tbCsBusy = 0; tbStops = 0;
     if(tbW3On) invalidate(3 << 19, 0x80000);
     tbW3On = false; tbW3Bank = 3;
   }
+  //(build 12) the CPU to time t
+  auto tbCpu(u64 t) -> void {
+    if(!tbB12 || !tb.on) return;
+    if(tb.cpu.stop) { if(t > tbCpuAt) tbCpuAt = t; return; }
+    if(t <= tbCpuAt + 20) return;
+    s64 clocks = (s64)((t - tbCpuAt) / 20), spent = tomba_cpu_run(&tb, clocks);
+    tbCpuAt += (u64)(tb.cpu.stop ? spent : clocks) * 20;
+    if(tb.cpu.stop) {
+      tbStops++;
+      if(getenv("TOMBA_CPUTRACE")) print("[tomba] the CPU stopped (why ", tb.cpu.why, ") at ", hex(tb.cpu.h_pc, 8L), " word ", hex(tb.cpu.h_ir, 8L),
+        " ea ", hex(tb.cpu.h_ea, 8L), ", ", tbCpuAt / 1000, " us\n");
+    }
+  }
   //a word into the engine at the time it takes it; it is busy for the word's estimate from then
   auto tbFeed(u16 w, u64 start) -> void {
+    if(tbB12) {
+      tbCpu(start);
+      bool was = tb.cpu.stop; u32 o = w & 0x7f;
+      if((w & 0x6000) == 0x4000 && !was && (o == 18 || (o == 19 && ((w >> 7) & 7) != 2 && ((w >> 7) & 7) < 4)))
+        tbTrap(3, {"op ", o, " (index ", (w >> 7) & 63, ") while the CPU runs: the cart ignores it - stop it first (op 19 index 2) and wait for status bit 3"});
+      tomba_word(&tb, w);
+      if(was && !tb.cpu.stop) tbCpuAt = start;
+      u64 clocks = tb.est * tbPercent() / 100;
+      if(tomba_waits(w)) tbBusy = start + clocks * 20;
+      else if((w & 0x6000) == 0x4000 && (o == 12 || o == 20 || o == 21)) tbCsBusy = start + clocks * 20;
+      if(getenv("TOMBA_TRACE") && (w & 0x607f) == 0x400d)
+        print("[tomba] DrawOTag: ", tb.nodes, " nodes, ", clocks / 50, " us from ", start / 1000, " us\n");
+      if(tb.err & ~tbErrSaid & 1) tbTrap(1, {"a DrawOTag walked past 1,000,000 nodes: an ordering table that never ends (bit 23 of a link) - the cart would stay busy for ever"});
+      if(tb.err & ~tbErrSaid & 2) tbTrap(2, {"an MVMVA the cart does not do as the PS1: its matrix is RT only, its vector TR only, V1 / V2 read as V0 (tgeo.sv)"});
+      tbErrSaid |= tb.err; tb.err = 0;
+      return;
+    }
     tomba_word(&tb, w);
     u64 clocks = tb.est * tbPercent() / 100;
     tbBusy = start + clocks * 20;   //(50 MHz)
@@ -617,6 +658,16 @@ struct EverDrivePro : Interface {
     tbErrSaid |= tb.err; tb.err = 0;
   }
   auto tbDrain(u64 now) -> void {
+    if(tbB12) {   //(in order; a word waits only for what it needs)
+      while(tbQn) {
+        u16 w = tbQ[tbQr];
+        u64 at = max(tbCsBusy, tomba_waits(w) ? tbBusy : (u64)0);
+        if(at > now) break;
+        tbQr = (tbQr + 1) & 1023; tbQn--;
+        tbFeed(w, at);
+      }
+      return;
+    }
     while(tbQn && tbBusy <= now) {
       u16 w = tbQ[tbQr]; tbQr = (tbQr + 1) & 1023; tbQn--;
       tbFeed(w, tbBusy);
@@ -634,9 +685,18 @@ struct EverDrivePro : Interface {
     }
     u64 now = cfxNow();
     tbDrain(now);
+    tbCpu(now);
     if(a < TB_CMD_BASE) { tomba_read(&tb, a, &v); value = v; return true; }   //the shown picture's window
     u16 w = (a - TB_CMD_BASE) >> 1;
-    if(tomba_queued(w)) {
+    if(tbB12 && tomba_queued(w)) {
+      if(!tbQn && tbCsBusy <= now && (!tomba_waits(w) || tbBusy <= now)) tbFeed(w, now);
+      else if(tbQn == 1024) { tb.lost++; tbTrap(0, {"a word lost: the cart's queue was full (1,024 words) - wait while the status says FULL (bit 1)"}); }
+      else { tbQ[(tbQr + tbQn) & 1023] = w; tbQn++; }
+    } else if(tbB12 && w == 4) {   //(build 12's diagnostic word 4: the queue, a command running, the CPU stopped, the walk)
+      tomba_read(&tb, a, &v);
+      value = (u16)(v | (tbQn ? 1 : 0) | (tbCsBusy > now ? 2 : 0) | (tbBusy > now ? 0x8000 : 0));
+      return true;
+    } else if(tomba_queued(w)) {
       if(!tbQn && tbBusy <= now) tbFeed(w, now);
       else if(tbQn == 1024) { tb.lost++; tbTrap(0, {"a word lost: the cart's queue was full (1,024 words) - wait while the status says FULL (bit 1)"}); }
       else { tbQ[(tbQr + tbQn) & 1023] = w; tbQn++; }
@@ -646,7 +706,7 @@ struct EverDrivePro : Interface {
       if(on != tbW3On || (on && b != tbW3Bank)) { tbW3On = on; tbW3Bank = b; invalidate(3 << 19, 0x80000); }
     }
     v = tomba_status(&tb);
-    if(tbQn || tbBusy > now) v |= TB_ST_BUSY;
+    if(tbQn || tbBusy > now || (tbB12 && tbCsBusy > now)) v |= TB_ST_BUSY;
     if(tbQn >= 768) v |= TB_ST_FULL;
     value = v;
     return true;
@@ -662,8 +722,9 @@ struct EverDrivePro : Interface {
     }
     dracx = rbfModel == "dracx";
     gotx = rbfModel == "gotx";
-    tbOn = rbfModel == "tomba" || rbfModel == "tomba11";
+    tbOn = rbfModel == "tomba" || rbfModel == "tomba11" || rbfModel == "tomba12";
     tbW3 = rbfModel == "tomba11";
+    tbB12 = rbfModel == "tomba12";
     if(tbOn) {
       tbSram.resize(0x40000);
       for(u32 n : range(0x40000)) tbSram[n] = (u16)(n * 0x9e37 + 0x5a5a);
@@ -766,6 +827,7 @@ struct EverDrivePro : Interface {
       n16 v;
       if(tbRead((u32)(n22)address, v)) return v;
     }
+    if(tbB12 && tb.on && !tb.cpu.stop) tbCpu(cfxNow());   //(build 12: the PS1's CPU writes the PSRAM the console reads)
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
       sh2Word = word;

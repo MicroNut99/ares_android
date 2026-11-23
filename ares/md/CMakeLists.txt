@@ -247,7 +247,8 @@ set_source_files_properties(${_cartfx_src} TARGET_DIRECTORY ares PROPERTIES LANG
 
 # Tomba CD32X's engine (MicroNut99/Tomba_CD32X fpga/): the 'tomba' configuration's model (board/tomba/tomba.c, bit for bit
 # what tomba_core.sv does in Tomba's tb_core.cpp SHADOW=1), compiled as C++, no precompiled header (as cartfx.c)
-set(_tomba_src ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/tomba/tomba.c)
+# (build 12, 'tomba12': + the PS1's CPU, board/tomba/tmips.c)
+set(_tomba_src ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/tomba/tomba.c ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/tomba/tmips.c)
 target_sources(ares PRIVATE ${_tomba_src})
 set_source_files_properties(${_tomba_src} TARGET_DIRECTORY ares PROPERTIES LANGUAGE CXX SKIP_UNITY_BUILD_INCLUSION ON
     SKIP_PRECOMPILE_HEADERS ON)

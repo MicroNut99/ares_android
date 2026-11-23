@@ -656,6 +656,54 @@ static void draw_otag(tomba_t* t, uint32_t head)
     t->nodes = (uint16_t)nodes;
 }
 
+
+/* ------------------------------------------------------------------------------------------------ build 12: the CPU */
+static uint32_t cpu_rd32(void* ctx, uint32_t a)
+{
+    tomba_t* t = (tomba_t*)ctx; int s; uint32_t w = ps1_word(t, a & 0x1FFFFF, &s);
+    if (s) return (uint32_t)t->sram[w & 0x3FFFF] | (uint32_t)t->sram[(w + 1) & 0x3FFFF] << 16;
+    return (uint32_t)psr(t, w) | (uint32_t)psr(t, w + 1) << 16;
+}
+static void cpu_wr32(void* ctx, uint32_t a, uint32_t v, uint32_t be)
+{
+    tomba_t* t = (tomba_t*)ctx; int s, k; uint32_t w = ps1_word(t, a & 0x1FFFFF, &s);
+    for (k = 0; k < 2; k++)
+    {
+        uint32_t b = (be >> (2 * k)) & 3; uint16_t h = (uint16_t)(v >> (16 * k)), m, o;
+        if (!b) continue;                                  /* (a half the write leaves alone is skipped) */
+        m = (uint16_t)((b & 1 ? 0x00FF : 0) | (b & 2 ? 0xFF00 : 0));
+        o = s ? t->sram[(w + k) & 0x3FFFF] : psr(t, w + k);
+        h = (uint16_t)((o & ~m) | (h & m));
+        if (s) t->sram[(w + k) & 0x3FFFF] = h; else psw(t, w + k, h);
+    }
+}
+static int g16(int r) { r &= 31; return r == 4 || r == 12 || r == 20 || r == 26 || r == 27 || r == 29 || r == 30; }
+static uint32_t cpu_gte_rd(void* ctx, int r)
+{
+    tomba_t* t = (tomba_t*)ctx;
+    if (r >= 32 && r != 63) return t->gsh[r & 31];
+    return gte_rd(t, r);
+}
+static void cpu_gte_wr(void* ctx, int r, uint32_t v)
+{
+    tomba_t* t = (tomba_t*)ctx;
+    if (r >= 32 && r != 63) t->gsh[r & 31] = g16(r) ? (uint32_t)(int32_t)(int16_t)v : v;
+    gte_wr(t, r, v);
+}
+static int cpu_gte_op(void* ctx, uint32_t ins)
+{
+    tomba_t* t = (tomba_t*)ctx; uint64_t e = t->est; int c = ins & 0x3F, n;
+    if (c != 0x01 && c != 0x06 && c != 0x12 && c != 0x2D && c != 0x2E && c != 0x30) return -1;   /* (tgeo's six) */
+    gte_op(t, ins);
+    n = (int)(t->est - e); t->est = e;
+    return n;
+}
+int64_t tomba_cpu_run(tomba_t* t, int64_t clocks)
+{
+    if (!t->b12 || t->cpu.stop) return 0;
+    return tmips_run(&t->cpu, clocks);
+}
+
 /* ------------------------------------------------------------------------------------------------ the commands */
 void tomba_reset(tomba_t* t, uint16_t key1, uint8_t id)
 {
@@ -667,6 +715,14 @@ void tomba_reset(tomba_t* t, uint16_t key1, uint8_t id)
     t->key1 = key1; t->id = id;
     t->dx1 = 1023; t->dy1 = 511;
     if (!unr[0]) unr_init();
+    if (id == TB_ID12)
+    {
+        t->b12 = 1;
+        t->cpu.ctx = t; t->cpu.rd32 = cpu_rd32; t->cpu.wr32 = cpu_wr32;
+        t->cpu.gte_rd = cpu_gte_rd; t->cpu.gte_wr = cpu_gte_wr; t->cpu.gte_op = cpu_gte_op;
+        t->cpu.mem_clk = 16; t->cpu.line_clk = 14;
+        tmips_reset(&t->cpu, 0x80010000u);
+    }
 }
 
 void tomba_word(tomba_t* t, uint16_t w)
@@ -677,6 +733,32 @@ void tomba_word(tomba_t* t, uint16_t w)
     {
         uint32_t D = (uint32_t)t->D;
         int o = w & 0x7F, i = (w >> 7) & 63;
+        if (t->b12) switch (o)
+        {
+            case 0: case 10: case 11: case 14: return;          /* (the model unit's: gone) */
+            case 1: if (t->cpu.stop) cpu_gte_wr(t, i, D); return;
+            case 2: if (t->cpu.stop) gte_op(t, D); return;
+            case 8: if (t->cpu.stop) t->latch = cpu_gte_rd(t, i); return;
+            case 17: t->latch = tmips_reg(&t->cpu, i); return;
+            case 18: if (t->cpu.stop) tmips_set(&t->cpu, i, D); return;
+            case 19:
+                switch (i & 7)
+                {
+                    case 0: if (t->cpu.stop) tmips_go(&t->cpu, 0, 0); break;
+                    case 1: if (t->cpu.stop) tmips_go(&t->cpu, 1, D); break;
+                    case 2: tmips_halt(&t->cpu); break;
+                    case 3: if (t->cpu.stop) tmips_flush(&t->cpu); break;
+                    case 4: t->latch = t->cpu.h_pc; break;
+                    case 5: t->latch = t->cpu.h_ir; break;
+                    case 6: t->latch = t->cpu.h_ea; break;
+                    default: break;
+                }
+                return;
+            case 20: t->latch = cpu_rd32(t, t->xa); t->xa = (t->xa + 4) & 0x1FFFFF; t->est += 14; return;
+            case 21: cpu_wr32(t, t->xa, D, 0xF); t->xa = (t->xa + 4) & 0x1FFFFF; t->est += 14; return;
+            case 22: t->xa = D & 0x1FFFFC; return;
+            default: break;
+        }
         switch (o)
         {
             case 0: t->A[i & 7] = D; break;
@@ -716,6 +798,7 @@ void tomba_word(tomba_t* t, uint16_t w)
                 uint32_t n = (uint32_t)(t->D >> 21) & 0xFFF, k;
                 t->COT = D & 0x1FFFFF;
                 for (k = 0; k < n; k++) wr32(t, t->COT + k * 4, k == 0 ? 0x00FFFFFFu : ((t->COT + (k - 1) * 4) & 0x1FFFFF));
+                t->clr = (int)n;
                 break;
             }
             case 13: draw_otag(t, D & 0x1FFFFF); break;
@@ -753,7 +836,9 @@ int tomba_read(tomba_t* t, uint32_t a, uint16_t* data)
         if (tomba_queued(w)) tomba_word(t, w);
         if (w >= 1 && w <= 15)
         {
-            *data = w == 1 ? (uint16_t)t->latch : w == 2 ? (uint16_t)(t->latch >> 16) : w == 3 ? t->lost : w == 6 ? t->taken : 0;
+            *data = w == 1 ? (uint16_t)t->latch : w == 2 ? (uint16_t)(t->latch >> 16) : w == 3 ? t->lost : w == 6 ? t->taken :
+                    (w == 4 && t->b12 && t->cpu.stop) ? 0x1000 :
+                    (w == 14 && t->b12) ? (uint16_t)((t->cpu.stop ? 0x8000 : 0) | (t->cpu.why & 7) << 12) : 0;
             return 1;
         }
         *data = tomba_status(t);
