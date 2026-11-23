@@ -131,6 +131,8 @@ struct EverDrivePro : Interface {
     {"60334c6b547eb9190d395ae0a43b29f0e707219e4b307a0962f32e76c565e0be", "Tomba CD32X engine build 11", "tomba11"},
     //Mega Man X CD32X fit 5 (MegaManX_CD32X docs/05, 22 Nov 2026): the SNES engine (rbf md5 80e93119)
     {"46fe93d6688ca0a5831820544a0c8a0eeceaa859dccee71be19f65e9650f579f", "Mega Man X CD32X fit 5", "mmx5"},
+    //fit 6 (MegaManX_CD32X docs/06, 22 Nov 2026): + the menu's hold, reset and pokes (rbf md5 494edf81)
+    {"c9f8ee35f1ba6694843e10aafef1b38623980e2e4440e543163827cee206fbf8", "Mega Man X CD32X fit 6", "mmx"},
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
