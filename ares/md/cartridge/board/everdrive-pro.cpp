@@ -136,7 +136,7 @@ struct EverDrivePro : Interface {
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
-                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11", "mmx", "mmx5"};    //the models this board has (more as cores are added)
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11", "mmx", "mmx5", "mmx7"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -587,6 +587,7 @@ struct EverDrivePro : Interface {
   //after the start (the engine owns it); a picture read with no picture locked. A green run here is never a console pass.
   bool mxOn = false;                       //rbfModel == "mmx" (fit 6) or "mmx5" (fit 5)
   bool mxFit6 = false;
+  bool mxFit7 = false;                      //(fit 7, docs/07: 8 bits a pixel, its palette at + 0xE000, the count at + 0xE200)
   struct Mx {
     bool armed = false, on = false; u16 cfgHi = 0;
     u16 pad = 0;
@@ -645,6 +646,17 @@ struct EverDrivePro : Interface {
     if(!ok || fflush(mx.to) || fread(d, 2, 57344, mx.from) != 57344) {
       print("[EverDrive PRO] mmx: the SNES process stopped\n"); mx.dead = true; return;
     }
+    if(mxFit7) {   //(the engine's numbering: colours 1-255 in the order met, line by line; 0 the border; past 255: 255)
+      static u16 tmp[57344]; ::memcpy(tmp, d, sizeof tmp);
+      std::vector<u16> num(32768, 0); u32 n = 1; bool ovf = false;
+      ::memset(d, 0, 57344 * 2);
+      for(u32 i : range(57344)) {
+        u16 c = tmp[i] & 0x7fff; u16 k = num[c];
+        if(!k) { if(n <= 255 && !ovf) { k = n; num[c] = k; d[0x7000 + n] = c; if(++n == 256) ovf = true; } else k = 255; }
+        d[i >> 1] |= i & 1 ? k : k << 8;
+      }
+      d[0x7100] = (ovf ? 0x100 : 0) | (n & 0xff);
+    }
     mx.frames++; mx.frontFrame = mx.frames; mx.front = mx.wbuf;
     for(u32 k : range(3)) if(k != mx.front && k != mx.lock) { mx.wbuf = k; break; }
   }
@@ -659,12 +671,12 @@ struct EverDrivePro : Interface {
       dxSync();
       if(off >> 1 == 0x40080 >> 1 && !mx.on) mxStart();
       u32 k = off >> 1 & 7;
-      value = (n16)(k == 0 ? (u32)mx.frontFrame : k == 1 ? mx.front : k == 2 ? (u32)mx.frames : k == 4 ? 0x4d58u : k == 6 && mxFit6 ? 0x0606u : 0u);
+      value = (n16)(k == 0 ? (u32)mx.frontFrame : k == 1 ? mx.front : k == 2 ? (u32)mx.frames : k == 4 ? 0x4d58u : k == 6 && mxFit7 ? 0x0607u : k == 6 && mxFit6 ? 0x0606u : 0u);
       return true;
     }
     if(mxFit6 && off >= 0x40200 && off < 0x40300) {   //(fit 6) run / hold / reset
       dxSync();
-      if(mx.on) { u32 k = off >> 1 & 3; if(k == 0) mx.hold = false; if(k == 1) mx.hold = true; if(k == 2) mx.reset = true; }
+      if(mx.on) { u32 k = off >> 1 & 3; if(k == 0) mx.hold = false; if(k == 1) mx.hold = true; if(k == 2) { mx.reset = true; mx.frames = 0; mx.frontFrame = 0; mx.front = 3; } }   //(the engine's counters at once, as its run going low)
       return false;
     }
     if(mxFit6 && off >= 0x44000 && off < 0x48000) { mx.pokeA = off >> 1 & 0x1fff; return false; }
@@ -784,8 +796,9 @@ struct EverDrivePro : Interface {
     dracx = rbfModel == "dracx";
     gotx = rbfModel == "gotx";
     tbOn = rbfModel == "tomba" || rbfModel == "tomba11";
-    mxOn = rbfModel == "mmx" || rbfModel == "mmx5";
-    mxFit6 = rbfModel == "mmx";   //(fit 5, 'mmx5': no hold, reset or poke; register word 6 is its held-tick count)
+    mxOn = rbfModel == "mmx" || rbfModel == "mmx5" || rbfModel == "mmx7";
+    mxFit6 = rbfModel == "mmx" || rbfModel == "mmx7";
+    mxFit7 = rbfModel == "mmx7";   //(fit 5, 'mmx5': no hold, reset or poke; register word 6 is its held-tick count)
     if(mxOn) mxPic.assign(3 * 57344, 0);
     tbW3 = rbfModel == "tomba11";
     if(tbOn) {
