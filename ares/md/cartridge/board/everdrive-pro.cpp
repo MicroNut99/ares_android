@@ -129,11 +129,13 @@ struct EverDrivePro : Interface {
     {"934271eb27c3381af811ce44d9d966378cbc7b68834ef96aef33afcc20eb5840", "Tomba CD32X engine build 10", "tomba"},
     //build 11 (Tomba_CD32X docs/09, 21 Nov 2026): + window 3's bank set by the SH2 (rbf md5 c6f76215)
     {"60334c6b547eb9190d395ae0a43b29f0e707219e4b307a0962f32e76c565e0be", "Tomba CD32X engine build 11", "tomba11"},
-    //build 12 (Tomba_CD32X docs/15-16, 23 Nov 2026): the PS1's CPU in the engine (tmips), the model unit gone (rbf md5 6aedb692)
+    //build 12 (Tomba_CD32X docs/15-16, 23 Nov 2026): the PS1's CPU in the engine (tmips), the model unit gone (rbf md5 6aedb692;
+    //its op 8 latches the GTE register addressed before - 'tomba12' models that, 'tomba12b' the source's C_GR1)
+    {"d53a4968ae24ee5cee7b7f3d42cf22f53aedfcc3702a5ab3f732fabe37323e3b", "Tomba CD32X engine build 12", "tomba12"},
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
-                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11", "tomba12"};    //the models this board has (more as cores are added)
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11", "tomba12", "tomba12b"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -612,6 +614,7 @@ struct EverDrivePro : Interface {
   auto tbReset() -> void {
     tb.psram_rd = &EverDrivePro::tbPsramRd; tb.psram_wr = &EverDrivePro::tbPsramWr; tb.sram = tbSram.data(); tb.ctx = this;
     tomba_reset(&tb, TB_KEY1, tbB12 ? TB_ID12 : tbW3 ? 0xC5 : TB_ID);
+    tb.gte_lag = rbfModel == "tomba12";
     tbQr = tbQn = 0; tbBusy = 0; tbSaid = false; tbErrSaid = 0; tbCpuAt = 0; tbCsBusy = 0; tbStops = 0;
     if(tbW3On) invalidate(3 << 19, 0x80000);
     tbW3On = false; tbW3Bank = 3;
@@ -725,9 +728,9 @@ struct EverDrivePro : Interface {
     }
     dracx = rbfModel == "dracx";
     gotx = rbfModel == "gotx";
-    tbOn = rbfModel == "tomba" || rbfModel == "tomba11" || rbfModel == "tomba12";
+    tbOn = rbfModel == "tomba" || rbfModel == "tomba11" || rbfModel == "tomba12" || rbfModel == "tomba12b";
     tbW3 = rbfModel == "tomba11";
-    tbB12 = rbfModel == "tomba12";
+    tbB12 = rbfModel == "tomba12" || rbfModel == "tomba12b";
     if(tbOn) {
       tbSram.resize(0x40000);
       for(u32 n : range(0x40000)) tbSram[n] = (u16)(n * 0x9e37 + 0x5a5a);

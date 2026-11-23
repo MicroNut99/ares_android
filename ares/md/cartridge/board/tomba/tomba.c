@@ -181,7 +181,7 @@ static void gte_op(tomba_t* t, uint32_t ins)
         {
             int mx = (ins >> 17) & 3, vv = (ins >> 15) & 3, cv = (ins >> 13) & 3;
             int16_t x, y, z;
-            if (mx || cv || vv == 1 || vv == 2) { t->err |= 2; t->err_ins = ins; t->err_n++; }
+            if (mx || cv == 1 || cv == 2 || vv == 1 || vv == 2) { t->err |= 2; t->err_ins = ins; t->err_n++; }
             if (vv == 3) { x = g->ir[1]; y = g->ir[2]; z = g->ir[3]; } else { x = g->vx[0]; y = g->vy[0]; z = g->vz[0]; }
             for (i = 0; i < 3; i++)
             {
@@ -738,7 +738,7 @@ void tomba_word(tomba_t* t, uint16_t w)
             case 0: case 10: case 11: case 14: return;          /* (the model unit's: gone) */
             case 1: if (t->cpu.stop) cpu_gte_wr(t, i, D); return;
             case 2: if (t->cpu.stop) gte_op(t, D); return;
-            case 8: if (t->cpu.stop) t->latch = cpu_gte_rd(t, i); return;
+            case 8: if (t->cpu.stop) { t->latch = cpu_gte_rd(t, t->gte_lag ? t->gte_last : i); t->gte_last = i; } return;
             case 17: t->latch = tmips_reg(&t->cpu, i); return;
             case 18: if (t->cpu.stop) tmips_set(&t->cpu, i, D); return;
             case 19:
