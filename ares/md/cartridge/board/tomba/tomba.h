@@ -118,6 +118,7 @@ typedef struct tomba {
     uint64_t est;
     uint32_t nw, ntex;                   /* PS1 RAM words moved, texels read (the estimate's) */
     uint32_t err;                        /* bit 0: a walk past 1,000,000 nodes (stopped), bit 1: an unmodelled MVMVA */
+    uint32_t err_ins, err_n;             /* (the last such MVMVA, how many) */
     /* build 12 (ID C6, docs/15): the PS1's CPU (tmips.c) where the model unit was; tgeo its COP2 */
     int      b12;
     tmips_t  cpu;

@@ -597,6 +597,7 @@ struct EverDrivePro : Interface {
   tomba_t tb = {};
   std::vector<uint16_t> tbSram;
   u16 tbQ[1024] = {};
+  u64 tbQt[1024] = {};           //(build 12) when each queued word came
   u32 tbQr = 0, tbQn = 0;
   u64 tbBusy = 0;                //busy until this time (cfxNow(): nanoseconds)
   bool tbSaid = false;
@@ -622,6 +623,8 @@ struct EverDrivePro : Interface {
     if(t <= tbCpuAt + 20) return;
     s64 clocks = (s64)((t - tbCpuAt) / 20), spent = tomba_cpu_run(&tb, clocks);
     tbCpuAt += (u64)(tb.cpu.stop ? spent : clocks) * 20;
+    if(tb.err & ~tbErrSaid & 2) { tbTrap(2, {"the CPU's MVMVA ", hex(tb.err_ins, 8L), " (matrix ", (tb.err_ins >> 17) & 3, ", vector ", (tb.err_ins >> 15) & 3,
+      ", translation ", (tb.err_ins >> 13) & 3, "): the cart's tgeo does it as RT x V0 + TR - not as the PS1"}); tbErrSaid |= 2; }
     if(tb.cpu.stop) {
       tbStops++;
       if(getenv("TOMBA_CPUTRACE")) print("[tomba] the CPU stopped (why ", tb.cpu.why, ") at ", hex(tb.cpu.h_pc, 8L), " word ", hex(tb.cpu.h_ir, 8L),
@@ -661,7 +664,7 @@ struct EverDrivePro : Interface {
     if(tbB12) {   //(in order; a word waits only for what it needs)
       while(tbQn) {
         u16 w = tbQ[tbQr];
-        u64 at = max(tbCsBusy, tomba_waits(w) ? tbBusy : (u64)0);
+        u64 at = max(max(tbCsBusy, tbQt[tbQr]), tomba_waits(w) ? tbBusy : (u64)0);
         if(at > now) break;
         tbQr = (tbQr + 1) & 1023; tbQn--;
         tbFeed(w, at);
@@ -691,7 +694,7 @@ struct EverDrivePro : Interface {
     if(tbB12 && tomba_queued(w)) {
       if(!tbQn && tbCsBusy <= now && (!tomba_waits(w) || tbBusy <= now)) tbFeed(w, now);
       else if(tbQn == 1024) { tb.lost++; tbTrap(0, {"a word lost: the cart's queue was full (1,024 words) - wait while the status says FULL (bit 1)"}); }
-      else { tbQ[(tbQr + tbQn) & 1023] = w; tbQn++; }
+      else { tbQ[(tbQr + tbQn) & 1023] = w; tbQt[(tbQr + tbQn) & 1023] = now; tbQn++; }
     } else if(tbB12 && w == 4) {   //(build 12's diagnostic word 4: the queue, a command running, the CPU stopped, the walk)
       tomba_read(&tb, a, &v);
       value = (u16)(v | (tbQn ? 1 : 0) | (tbCsBusy > now ? 2 : 0) | (tbBusy > now ? 0x8000 : 0));

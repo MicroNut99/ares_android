@@ -181,7 +181,7 @@ static void gte_op(tomba_t* t, uint32_t ins)
         {
             int mx = (ins >> 17) & 3, vv = (ins >> 15) & 3, cv = (ins >> 13) & 3;
             int16_t x, y, z;
-            if (mx || cv || vv == 1 || vv == 2) t->err |= 2;
+            if (mx || cv || vv == 1 || vv == 2) { t->err |= 2; t->err_ins = ins; t->err_n++; }
             if (vv == 3) { x = g->ir[1]; y = g->ir[2]; z = g->ir[3]; } else { x = g->vx[0]; y = g->vy[0]; z = g->vz[0]; }
             for (i = 0; i < 3; i++)
             {
