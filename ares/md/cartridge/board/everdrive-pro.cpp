@@ -129,10 +129,12 @@ struct EverDrivePro : Interface {
     {"934271eb27c3381af811ce44d9d966378cbc7b68834ef96aef33afcc20eb5840", "Tomba CD32X engine build 10", "tomba"},
     //build 11 (Tomba_CD32X docs/09, 21 Nov 2026): + window 3's bank set by the SH2 (rbf md5 c6f76215)
     {"60334c6b547eb9190d395ae0a43b29f0e707219e4b307a0962f32e76c565e0be", "Tomba CD32X engine build 11", "tomba11"},
+    //Mega Man X CD32X fit 5 (MegaManX_CD32X docs/05, 22 Nov 2026): the SNES engine (rbf md5 80e93119)
+    {"46fe93d6688ca0a5831820544a0c8a0eeceaa859dccee71be19f65e9650f579f", "Mega Man X CD32X fit 5", "mmx5"},
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
-                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11"};    //the models this board has (more as cores are added)
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "tomba", "tomba11", "mmx", "mmx5"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -222,11 +224,16 @@ struct EverDrivePro : Interface {
   auto dxTrap(u32 kind, const string& what) -> void { coreTrap(TrapDracx, kind, what); }
   static constexpr u32 GxBank = 26, GxDataBank = 16, GxScBank = 27, GxLba0 = 3590, GxSectors = 1882, GxPageSectors = 992;
 
-  auto frequency() -> u32 override { return dracx || gotx ? MasterClock : Interface::frequency(); }
+  auto frequency() -> u32 override { return dracx || gotx || mxOn ? MasterClock : Interface::frequency(); }
 
   //the cart's thread: the machine to its own time, a few hundred master clocks at a time; while it waits for a
   //sector (dxm_waiting), its time stands still and only the thread's goes on
   auto main() -> void override {
+    if(mxOn) {
+      if(!mx.on || mx.hold) return step(256);   //(held: no ticks, its time does not pile up)
+      mxRunFrame();
+      return step(MxFrame);
+    }
     if(gotx) {
       if(!gx.on) return step(256);
       if(getenv("GOTX_TRACE")) { static u64 n; if(++n % 83'000 == 0) print("[gotx] machine frame ", gotm_frame(), " time ", (s64)gotm_now(), " drive next ", gotm_drive_next(), " missed ", gotm_missed(), " pad reads ", gxPadReads, " pad ", hex(gx.pad, 2L), "\n"); }
@@ -565,6 +572,118 @@ struct EverDrivePro : Interface {
     return true;
   }
 
+  //Mega Man X CD32X (MicroNut99/MegaManX_CD32X fpga/mapper/map_mmx, its docs/05-06): the 'mmx' configuration (a
+  //mega-pro.rbf.ares naming it: the fit's .rbf changes with every build) - krikzz's map_ssf until the key 'MXON' (bank 26 +
+  //0x41000, word 0xFF, the 68000's write: command 101), then bank 26 is the core's window: + 0x00000-0x1BFFF the locked
+  //picture (256 x 224 BGR555), + 0x40000 the registers (0 the newest picture's frame, 1 the newest picture 0-2 / 3 none, 2
+  //pictures made, 3 the sound log's pointer, 4 the ID 0x4D58, 5 ticks held), + 0x40080 the start, + 0x40100 + 2b the lock,
+  //+ 0x60000 + 2 x buttons the pad (B Y Sel St Up Dn Lt Rt A X L R = bits 0-11). The SNES is the repo's reference, run as a
+  //process: MMX_REF=<tools/ref's mx_ref, built with build.sh> - "mx_ref <ROM> --serve" - fed the ROM as the cart holds it
+  //(banks 16-19: PSRAM chip 1 from 0), a frame each 357,368 SNES master clocks of the cart's time, its picture into a buffer
+  //that is neither the newest nor the locked one (mmx_eng.sv's rule). Not modelled: the engine's held ticks (the SNES runs
+  //exactly at real time here), the sound log (empty). Traps ("[mmx TRAP]"): a console access to PSRAM chip 1 (banks 16-30)
+  //after the start (the engine owns it); a picture read with no picture locked. A green run here is never a console pass.
+  bool mxOn = false;                       //rbfModel == "mmx" (fit 6) or "mmx5" (fit 5)
+  bool mxFit6 = false;
+  struct Mx {
+    bool armed = false, on = false; u16 cfgHi = 0;
+    u16 pad = 0;
+    bool hold = false, reset = false; u16 pokeA = 0; std::vector<u8> pokes;   //(fit 6, docs/06: the menu's hold, reset, pokes)
+    u32 lock = 3, front = 3, wbuf = 0;
+    u16 frontFrame = 0, frames = 0;
+    FILE* to = nullptr; FILE* from = nullptr; int pid = 0;
+    bool dead = false, said = false;
+  } mx;
+  std::vector<u16> mxPic;                  //the three pictures, 57,344 words each
+  static constexpr u32 MxBank = 26, MxFrame = 1364 * 262;
+  auto mxTrap(u32 kind, const string& what) -> void {
+    static u32 said = 0;
+    if(said & 1 << kind) return;
+    said |= 1 << kind;
+    print("[mmx TRAP] ", what, "\n");
+  }
+  auto mxStop() -> void {
+    if(mx.to) fclose(mx.to);
+    if(mx.from) fclose(mx.from);
+    if(mx.pid > 0) { ::kill(mx.pid, SIGTERM); ::waitpid(mx.pid, nullptr, 0); }
+    mx.to = mx.from = nullptr; mx.pid = 0;
+  }
+  auto mxStart() -> void {
+    mxStop();
+    mx.on = true; mx.front = 3; mx.wbuf = 0; mx.frames = 0; mx.frontFrame = 0;
+    const char* ref = getenv("MMX_REF");
+    if(!ref) { print("[EverDrive PRO] mmx: MMX_REF is not set - the SNES does not run (no pictures)\n"); mx.dead = true; return; }
+    //the ROM as the cart holds it: banks 16-19, the even byte a word's high half
+    string rom = {Path::temporary(), "mmx_rom_", (u32)getpid(), ".sfc"};
+    if(FILE* f = fopen(rom, "wb")) {
+      for(u32 n : range(0x100000)) { n16 w = ram[16 << 18 | n]; fputc(w >> 8, f); fputc((u8)w, f); }
+      fclose(f);
+    }
+    int a[2], b[2];
+    if(::pipe(a) || ::pipe(b)) { mx.dead = true; return; }
+    ::signal(SIGPIPE, SIG_IGN);
+    int pid = ::fork();
+    if(pid == 0) {
+      dup2(a[0], 0); dup2(b[1], 1); close(a[1]); close(b[0]);
+      execl(ref, ref, (const char*)rom, "--serve", (char*)nullptr);
+      _exit(127);
+    }
+    close(a[0]); close(b[1]);
+    mx.pid = pid; mx.to = fdopen(a[1], "wb"); mx.from = fdopen(b[0], "rb");
+    print("[EverDrive PRO] mmx: the SNES started (", ref, ")\n");
+  }
+  auto mxRunFrame() -> void {               //one SNES frame: its picture to a buffer neither the newest nor the locked one
+    if(!mx.to || mx.dead) return;
+    if(mx.reset) { mx.frames = 0; mx.frontFrame = 0; mx.front = 3; }   //(the engine's counters start again, as its run going low)
+    u8 p[4] = {(u8)mx.pad, (u8)(mx.pad >> 8), (u8)(mx.reset ? 1 : 0), (u8)(mx.pokes.size() / 4)};
+    mx.reset = false;
+    u16* d = mxPic.data() + mx.wbuf * 57344;
+    bool ok = fwrite(p, 1, 4, mx.to) == 4 && (mx.pokes.empty() || fwrite(mx.pokes.data(), 1, mx.pokes.size(), mx.to) == mx.pokes.size());
+    mx.pokes.clear();
+    if(!ok || fflush(mx.to) || fread(d, 2, 57344, mx.from) != 57344) {
+      print("[EverDrive PRO] mmx: the SNES process stopped\n"); mx.dead = true; return;
+    }
+    mx.frames++; mx.frontFrame = mx.frames; mx.front = mx.wbuf;
+    for(u32 k : range(3)) if(k != mx.front && k != mx.lock) { mx.wbuf = k; break; }
+  }
+  auto mxRead(u32 off, n16& value) -> bool {
+    if(!mx.armed) return false;
+    if(off < 0x1c000) {
+      if(mx.lock == 3 && mx.on) mxTrap(1, "a picture read with no picture locked (the cart answers from picture 2)");
+      value = mxPic[(mx.lock == 3 ? 2 : mx.lock) * 57344 + (off >> 1)];
+      return true;
+    }
+    if(off >= 0x40000 && off < 0x40100) {
+      dxSync();
+      if(off >> 1 == 0x40080 >> 1 && !mx.on) mxStart();
+      u32 k = off >> 1 & 7;
+      value = (n16)(k == 0 ? (u32)mx.frontFrame : k == 1 ? mx.front : k == 2 ? (u32)mx.frames : k == 4 ? 0x4d58u : k == 6 && mxFit6 ? 0x0606u : 0u);
+      return true;
+    }
+    if(mxFit6 && off >= 0x40200 && off < 0x40300) {   //(fit 6) run / hold / reset
+      dxSync();
+      if(mx.on) { u32 k = off >> 1 & 3; if(k == 0) mx.hold = false; if(k == 1) mx.hold = true; if(k == 2) mx.reset = true; }
+      return false;
+    }
+    if(mxFit6 && off >= 0x44000 && off < 0x48000) { mx.pokeA = off >> 1 & 0x1fff; return false; }
+    if(mxFit6 && off >= 0x4d000 && off < 0x4d200) {
+      if(mx.on && mx.pokes.size() < 4 * 255) { u8 q[4] = {(u8)mx.pokeA, (u8)(mx.pokeA >> 8), (u8)(off >> 1), 0}; mx.pokes.insert(mx.pokes.end(), q, q + 4); }
+      return false;
+    }
+    if(off >= 0x40100 && off < 0x40200) { dxSync(); mx.lock = off >> 1 & 3; return false; }
+    if(off >= 0x60000 && off < 0x68000) { if(mx.on) mx.pad = off >> 1 & 0xfff; return false; }
+    if(off >= 0x4e000 && off < 0x4e400) { value = 0; return true; }
+    return false;
+  }
+  auto mxWrite(u32 off, n16 data) -> void {
+    if(off < 0x41000 || off >= 0x41400) return;
+    if(!(off & 2)) mx.cfgHi = data;
+    else if((off >> 2 & 0xff) == 0xff) {
+      mx.armed = (mx.cfgHi << 16 | data) == 0x4d584f4e;
+      if(mx.armed && !mx.said) { mx.said = true; print("[EverDrive PRO] mmx: the key - the window is the core's\n"); }
+    }
+  }
+
   //Tomba CD32X's engine (MicroNut99/Tomba_CD32X fpga/tomba_core.sv; docs/02): the 'tomba' configuration (build 10's
   //.rbf by its SHA-256 above, or a mega-pro.rbf.ares naming it) - a PS1 drawing machine beside krikzz's map_ssf: the
   //GTE, the game's model drawing loops, DrawOTag and the GPU, drawing into two 8-bit pictures in the cart's SRAM that
@@ -663,6 +782,9 @@ struct EverDrivePro : Interface {
     dracx = rbfModel == "dracx";
     gotx = rbfModel == "gotx";
     tbOn = rbfModel == "tomba" || rbfModel == "tomba11";
+    mxOn = rbfModel == "mmx" || rbfModel == "mmx5";
+    mxFit6 = rbfModel == "mmx";   //(fit 5, 'mmx5': no hold, reset or poke; register word 6 is its held-tick count)
+    if(mxOn) mxPic.assign(3 * 57344, 0);
     tbW3 = rbfModel == "tomba11";
     if(tbOn) {
       tbSram.resize(0x40000);
@@ -739,6 +861,14 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(mxOn) {
+      n16 v;
+      if(word >> 18 == MxBank && mxRead((word & 0x3ffff) << 1, v)) return v;
+      if(mx.on && word >> 18 >= 16 && word >> 18 <= 30 && word >> 18 != MxBank) {
+        mxTrap(0, {"the console read PSRAM chip 1 (bank ", word >> 18, ") after the start: on the cart the engine owns it - read as 0xFFFF"});
+        return 0xffff;
+      }
+    }
     if(gotx) {
       u32 off = (word & 0x3ffff) << 1; n16 v;
       if(word >> 18 == GxBank && gxRead(off, v)) return v;
@@ -779,6 +909,11 @@ struct EverDrivePro : Interface {
   }
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(mxOn && offset(address) >> 19 == MxBank) mxWrite(offset(address) & 0x7ffff, data);
+    if(mxOn && mx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != MxBank) {
+      mxTrap(2, {"the console wrote PSRAM chip 1 (bank ", offset(address) >> 19, ") after the start: on the cart the engine owns it - write lost"});
+      return;
+    }
     if(gotx && offset(address) >> 19 == GxBank) gxWrite((offset(address) & 0x7ffff), upper, lower, data);   //(map_got takes any write there, docs/36)
     if(gotx && gx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != GxBank) {
       gxTrap(1, {"the console wrote PSRAM chip 1 (bank ", offset(address) >> 19, ") after the start: on the cart the engine owns it - write lost"});
@@ -879,6 +1014,7 @@ struct EverDrivePro : Interface {
     if(tbOn) tbReset();     //(Tomba CD32X: off until the key)
     dx = {};   //(dracx: the engine at its reset until the start read)
     gx = {};   //(gotx: the same; off at the console's reset too, docs/36)
+    if(mxOn) { mxStop(); mx = {}; }   //(mmx: off until the key again)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;
     led = 0;
