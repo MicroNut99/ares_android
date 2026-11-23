@@ -739,13 +739,23 @@ void tomba_word(tomba_t* t, uint16_t w)
             case 1: if (t->cpu.stop) cpu_gte_wr(t, i, D); return;
             case 2: if (t->cpu.stop) gte_op(t, D); return;
             case 8: if (t->cpu.stop) { t->latch = cpu_gte_rd(t, t->gte_lag ? t->gte_last : i); t->gte_last = i; } return;
-            case 17: t->latch = tmips_reg(&t->cpu, i); return;
-            case 18: if (t->cpu.stop) tmips_set(&t->cpu, i, D); return;
+            /* (docs/17) err bit 2: register i read or written while a load into it is in flight (a halt's stop): the
+               read is the old value, the write is lost to the load after the go */
+            case 17:
+                if (t->cpu.ld_r && t->cpu.ld_r == (int)i) { t->err |= 4; t->err_ins = i; }
+                /* (docs/17) the first fit (gte_lag): the register file's word is latched a clock early - a general
+                   register reads as the one addressed by the op 17 before (after a go: whatever the CPU last decoded,
+                   here a marker); HI / LO (32, 33) are not from the file and are right */
+                if (t->gte_lag && i < 32) t->latch = t->cr_last < 0 ? 0xBAD0BAD0u : tmips_reg(&t->cpu, t->cr_last);
+                else t->latch = tmips_reg(&t->cpu, i);
+                t->cr_last = (int)(i & 31);
+                return;
+            case 18: if (t->cpu.stop) { if (t->cpu.ld_r && t->cpu.ld_r == (int)i) { t->err |= 4; t->err_ins = i; } tmips_set(&t->cpu, i, D); } return;
             case 19:
                 switch (i & 7)
                 {
-                    case 0: if (t->cpu.stop) tmips_go(&t->cpu, 0, 0); break;
-                    case 1: if (t->cpu.stop) tmips_go(&t->cpu, 1, D); break;
+                    case 0: if (t->cpu.stop) { tmips_go(&t->cpu, 0, 0); t->cr_last = -1; } break;
+                    case 1: if (t->cpu.stop) { tmips_go(&t->cpu, 1, D); t->cr_last = -1; } break;
                     case 2: tmips_halt(&t->cpu); break;
                     case 3: if (t->cpu.stop) tmips_flush(&t->cpu); break;
                     case 4: t->latch = t->cpu.h_pc; break;

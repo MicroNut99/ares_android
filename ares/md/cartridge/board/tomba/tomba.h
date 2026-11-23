@@ -125,6 +125,7 @@ typedef struct tomba {
     uint32_t gsh[32];                    /* the GTE's control registers as written (CFC2 and op 8 read them here) */
     uint32_t xa;                         /* ops 20-22's PS1 RAM address */
     int      clr;                        /* the last op 12's words (its time: the host keeps the next words back) */
+    int      cr_last;                    /* (the first fit: the register op 17 addressed before, -1 after a go) */
     int      gte_lag, gte_last;          /* (the first fit, rbf md5 6aedb692: op 8 latches the register addressed before) */
 } tomba_t;
 

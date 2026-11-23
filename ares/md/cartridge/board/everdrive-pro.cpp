@@ -592,6 +592,7 @@ struct EverDrivePro : Interface {
   //written or the CPU set going while it runs (the cart ignores it). TOMBA_CPUTRACE=1: each stop, why and where.
   bool tbB12 = false;
   u64 tbCpuAt = 0;               //the CPU has run to this time (cfxNow(): nanoseconds)
+  u64 tbFlushEnd = 0;            //(build 12) the CPU empties its instruction cache until this time: not stopped, deaf
   u64 tbCsBusy = 0;              //(build 12) a command still running (ClearOTagR, a PS1 RAM word) until this time
   u64 tbStops = 0;
   u64 tbStopAt = 0;
@@ -621,7 +622,7 @@ struct EverDrivePro : Interface {
     tb.psram_rd = &EverDrivePro::tbPsramRd; tb.psram_wr = &EverDrivePro::tbPsramWr; tb.sram = tbSram.data(); tb.ctx = this;
     tomba_reset(&tb, TB_KEY1, tbB12 ? TB_ID12 : tbW3 ? 0xC5 : TB_ID);
     tb.gte_lag = rbfModel == "tomba12";
-    tbQr = tbQn = 0; tbBusy = 0; tbSaid = false; tbErrSaid = 0; tbCpuAt = 0; tbCsBusy = 0; tbStops = 0;
+    tbQr = tbQn = 0; tbBusy = 0; tbSaid = false; tbErrSaid = 0; tbCpuAt = 0; tbCsBusy = 0; tbFlushEnd = 0; tbStops = 0;
     if(tbW3On) invalidate(3 << 19, 0x80000);
     tbW3On = false; tbW3Bank = 3;
   }
@@ -653,7 +654,15 @@ struct EverDrivePro : Interface {
       bool was = tb.cpu.stop; u32 o = w & 0x7f;
       if((w & 0x6000) == 0x4000 && !was && (o == 18 || (o == 19 && ((w >> 7) & 7) != 2 && ((w >> 7) & 7) < 4)))
         tbTrap(3, {"op ", o, " (index ", (w >> 7) & 63, ") while the CPU runs: the cart ignores it - stop it first (op 19 index 2) and wait for status bit 3"});
+      //(tmips.sv S_FL: op 19 index 3 clears a tag a clock, 1,024 clocks; until it is back in S_H the status says "not
+      // stopped" and a register write, a go or another flush is lost)
+      if((w & 0x6000) == 0x4000 && start < tbFlushEnd && (o == 18 || (o == 19 && ((w >> 7) & 7) != 2 && ((w >> 7) & 7) < 4))) {
+        tbTrap(4, {"op ", o, " (index ", (w >> 7) & 63, ") while the CPU empties its instruction cache (20 us after op 19 index 3): the cart loses it - wait for status bit 3 after the flush"});
+        return;
+      }
+      if((w & 0x6000) == 0x4000 && o == 19 && ((w >> 7) & 7) == 3 && was) tbFlushEnd = start + 1026 * 20;
       tomba_word(&tb, w);
+      if(tb.err & 4) { tb.err &= ~4; tbTrap(5, {"the CPU's register ", tb.err_ins, " read or written (op ", o, ") with a load into it in flight (a halt's stop: the load lands at the next instruction's decode) - the read is the old value, a write is lost; run one instruction first"}); }
       if(was && !tb.cpu.stop) { tbCpuAt = start; if(tbTrace()) print("[tomba]   on after ", (start - tbStopAt) / 1000, " us\n"); }
       u64 clocks = tb.est * tbPercent() / 100;
       if(tomba_waits(w)) tbBusy = start + clocks * 20;
@@ -712,6 +721,7 @@ struct EverDrivePro : Interface {
       else { tbQ[(tbQr + tbQn) & 1023] = w; tbQt[(tbQr + tbQn) & 1023] = now; tbQn++; }
     } else if(tbB12 && w == 4) {   //(build 12's diagnostic word 4: the queue, a command running, the CPU stopped, the walk)
       tomba_read(&tb, a, &v);
+      if(now < tbFlushEnd) v &= ~0x1000;
       value = (u16)(v | (tbQn ? 1 : 0) | (tbCsBusy > now ? 2 : 0) | (tbBusy > now ? 0x8000 : 0));
       return true;
     } else if(tomba_queued(w)) {
@@ -724,6 +734,7 @@ struct EverDrivePro : Interface {
       if(on != tbW3On || (on && b != tbW3Bank)) { tbW3On = on; tbW3Bank = b; invalidate(3 << 19, 0x80000); }
     }
     v = tomba_status(&tb);
+    if(tbB12 && now < tbFlushEnd) v &= ~8;   //(not stopped while it flushes)
     if(tbQn || tbBusy > now || (tbB12 && tbCsBusy > now)) v |= TB_ST_BUSY;
     if(tbQn >= 768) v |= TB_ST_FULL;
     value = v;
@@ -843,7 +854,13 @@ struct EverDrivePro : Interface {
     }
     if(tbOn && !cpu.active() && (u32)(n22)address >= 0x3e0000) {   //(Tomba CD32X: the engine's window, once keyed)
       n16 v;
-      if(tbRead((u32)(n22)address, v)) return v;
+      if(tbRead((u32)(n22)address, v)) {
+        //(TOMBA_PORTLOG=file: every access the engine answers at 0x3F0000 on - time in ns, address, the word given -
+        // for tools/cpu/tb_port, which plays them into the Verilog)
+        static FILE* pl = [] { auto e = getenv("TOMBA_PORTLOG"); return e ? fopen(e, "w") : (FILE*)nullptr; }();
+        if(pl && ((u32)(n22)address & 0x3ffffe) >= 0x3f0000) fprintf(pl, "%llu %06x %04x\n", (unsigned long long)cfxNow(), (u32)(n22)address & 0x3ffffe, (u32)v);
+        return v;
+      }
     }
     if(tbB12 && tb.on && !tb.cpu.stop) tbCpu(cfxNow());   //(build 12: the PS1's CPU writes the PSRAM the console reads)
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)

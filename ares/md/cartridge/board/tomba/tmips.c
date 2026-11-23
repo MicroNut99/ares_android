@@ -19,11 +19,12 @@ void tmips_reset(tmips_t* c, uint32_t pc)
 }
 void tmips_flush(tmips_t* c) { memset(c->itag, 0, sizeof c->itag); c->clk += 1024; }
 void tmips_halt(tmips_t* c) { if (!c->stop) { c->stop = 1; c->why = 4; c->h_pc = c->pc; } }
-static void land(tmips_t* c) { if (c->ld_r) { c->r[c->ld_r] = c->ld_v; c->ld_r = 0; } }
-uint32_t tmips_reg(tmips_t* c, int i) { land(c); return i == 32 ? c->hi : i == 33 ? c->lo : i ? c->r[i & 31] : 0; }
+/* (docs/17) a load in flight at a halt (why 4: stopped before the next instruction's decode, which lands it) is NOT in
+   the register file yet - tmips.sv's S_H reads and writes the file as it is, and the load lands over it after the go.
+   At a BREAK, an I/O access or a GTE stop it has landed (S_D, before S_E stops). */
+uint32_t tmips_reg(tmips_t* c, int i) { return i == 32 ? c->hi : i == 33 ? c->lo : i ? c->r[i & 31] : 0; }
 void tmips_set(tmips_t* c, int i, uint32_t v)
 {
-    land(c);
     if (i == 32) c->hi = v; else if (i == 33) c->lo = v; else if (i > 0 && i < 32) c->r[i] = v;
 }
 void tmips_go(tmips_t* c, int at, uint32_t pc)
@@ -101,7 +102,7 @@ int64_t tmips_run(tmips_t* c, int64_t clocks)
             case 0x0C: case 0x0D:
                 if (c->exc) { exception(c, pc, fn == 0x0C ? 8 : 9, ins, ds_t); c->clk += 1; if (c->retire) c->retire(c->ctx, pc, ins, 0, 0);
                               if (pend_r) c->r[pend_r] = pend_v; continue; }
-                c->ld_r = pend_r; c->ld_v = pend_v; c->stop = 1; c->why = 1; c->h_pc = pc; c->h_ir = ins; continue;
+                if (pend_r) c->r[pend_r] = pend_v; /* (tmips.sv: S_D lands it before S_E stops) */ c->stop = 1; c->why = 1; c->h_pc = pc; c->h_ir = ins; continue;
             case 0x10: if (c->clk < c->md_until) c->clk = c->md_until; wr = rd; wv = c->hi; break;
             case 0x11: c->hi = vs; break;
             case 0x12: if (c->clk < c->md_until) c->clk = c->md_until; wr = rd; wv = c->lo; break;
@@ -154,7 +155,7 @@ int64_t tmips_run(tmips_t* c, int64_t clocks)
             if (c->clk < gte_until) c->clk = gte_until;
             if (ins & (1u << 25)) {
                 const int n = c->gte_op(c->ctx, ins);
-                if (n < 0 && !c->exc) { c->ld_r = pend_r; c->ld_v = pend_v; c->clk -= 3; c->stop = 1; c->why = 2; c->h_pc = pc; c->h_ir = ins; continue; }
+                if (n < 0 && !c->exc) { if (pend_r) c->r[pend_r] = pend_v; /* (tmips.sv: S_D lands it before S_E stops) */ c->clk -= 3; c->stop = 1; c->why = 2; c->h_pc = pc; c->h_ir = ins; continue; }
                 gte_until = c->clk + (n > 0 ? n : 0);
             } else if (rs == 0 || rs == 2) { newld = rt; newld_v = c->gte_rd(c->ctx, (rs == 2 ? 32 : 0) + (int)rd); rval = newld_v; c->clk += 2; }
             else if (rs == 4 || rs == 6) { c->gte_wr(c->ctx, (rs == 6 ? 32 : 0) + (int)rd, vt); rval = vt; }
@@ -166,7 +167,7 @@ int64_t tmips_run(tmips_t* c, int64_t clocks)
                 const int sp = pa >= 0x1F800000u && pa < 0x1F800400u, ram = pa < 0x00800000u;
                 const int load = op <= 0x26 || op == 0x32;
                 if ((op == 0x32 || op == 0x3A) && c->clk < gte_until) c->clk = gte_until;
-                if (!sp && !ram && !c->exc) { c->ld_r = pend_r; c->ld_v = pend_v; c->clk -= 3; c->stop = 1; c->why = 3; c->h_pc = pc; c->h_ir = ins; c->h_ea = ea; continue; }
+                if (!sp && !ram && !c->exc) { if (pend_r) c->r[pend_r] = pend_v; /* (tmips.sv: S_D lands it before S_E stops) */ c->clk -= 3; c->stop = 1; c->why = 3; c->h_pc = pc; c->h_ir = ins; c->h_ea = ea; continue; }
                 if (load) {
                     uint32_t w;
                     if (sp) { memcpy(&w, c->spad + (pa & 0x3FC), 4); c->clk += 2; }
