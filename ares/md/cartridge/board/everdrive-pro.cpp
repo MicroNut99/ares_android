@@ -594,6 +594,12 @@ struct EverDrivePro : Interface {
   u64 tbCpuAt = 0;               //the CPU has run to this time (cfxNow(): nanoseconds)
   u64 tbCsBusy = 0;              //(build 12) a command still running (ClearOTagR, a PS1 RAM word) until this time
   u64 tbStops = 0;
+  u64 tbStopAt = 0;
+  auto tbTrace() -> bool {   //TOMBA_CPUTRACE=1 (or =<seconds>: from then on)
+    static s64 from = [] { auto e = getenv("TOMBA_CPUTRACE"); return e ? (s64)atoi(e) : (s64)-1; }();
+    return from >= 0 && (from <= 1 || cfxNow() >= (u64)from * 1'000'000'000);
+  }
+  u64 tbRunClk = 0, tbStatAt = 0, tbStatStops = 0;   //(TOMBA_CPUSTAT)
   bool tbW3On = false;
   n5 tbW3Bank = 3;
   tomba_t tb = {};
@@ -625,12 +631,18 @@ struct EverDrivePro : Interface {
     if(tb.cpu.stop) { if(t > tbCpuAt) tbCpuAt = t; return; }
     if(t <= tbCpuAt + 20) return;
     s64 clocks = (s64)((t - tbCpuAt) / 20), spent = tomba_cpu_run(&tb, clocks);
+    tbRunClk += (u64)spent;
+    if(getenv("TOMBA_CPUSTAT") && t >= tbStatAt + 1'000'000'000) {   //(each second: the CPU's share of it running, its stops)
+      if(tbStatAt) print("[tomba] the CPU ran ", tbRunClk * 100 / 50'000'000, "% of the last second, ", tbStops - tbStatStops, " stops\n");
+      tbStatAt = t; tbRunClk = 0; tbStatStops = tbStops;
+    }
     tbCpuAt += (u64)(tb.cpu.stop ? spent : clocks) * 20;
     if(tb.err & ~tbErrSaid & 2) { tbTrap(2, {"the CPU's MVMVA ", hex(tb.err_ins, 8L), " (matrix ", (tb.err_ins >> 17) & 3, ", vector ", (tb.err_ins >> 15) & 3,
       ", translation ", (tb.err_ins >> 13) & 3, "): the cart's tgeo does it as RT x V0 + TR - not as the PS1"}); tbErrSaid |= 2; }
     if(tb.cpu.stop) {
       tbStops++;
-      if(getenv("TOMBA_CPUTRACE")) print("[tomba] the CPU stopped (why ", tb.cpu.why, ") at ", hex(tb.cpu.h_pc, 8L), " word ", hex(tb.cpu.h_ir, 8L),
+      tbStopAt = tbCpuAt;
+      if(tbTrace()) print("[tomba] the CPU stopped (why ", tb.cpu.why, ") at ", hex(tb.cpu.h_pc, 8L), " word ", hex(tb.cpu.h_ir, 8L),
         " ea ", hex(tb.cpu.h_ea, 8L), ", ", tbCpuAt / 1000, " us\n");
     }
   }
@@ -642,7 +654,7 @@ struct EverDrivePro : Interface {
       if((w & 0x6000) == 0x4000 && !was && (o == 18 || (o == 19 && ((w >> 7) & 7) != 2 && ((w >> 7) & 7) < 4)))
         tbTrap(3, {"op ", o, " (index ", (w >> 7) & 63, ") while the CPU runs: the cart ignores it - stop it first (op 19 index 2) and wait for status bit 3"});
       tomba_word(&tb, w);
-      if(was && !tb.cpu.stop) tbCpuAt = start;
+      if(was && !tb.cpu.stop) { tbCpuAt = start; if(tbTrace()) print("[tomba]   on after ", (start - tbStopAt) / 1000, " us\n"); }
       u64 clocks = tb.est * tbPercent() / 100;
       if(tomba_waits(w)) tbBusy = start + clocks * 20;
       else if((w & 0x6000) == 0x4000 && (o == 12 || o == 20 || o == 21)) tbCsBusy = start + clocks * 20;
