@@ -169,12 +169,6 @@ struct EverDrivePro : Interface {
   //Not modelled: the engine's holds of the master clock for its own memories (no time in the game's), the save state.
   bool dracx = false;                       //rbfModel == "dracx"
   //OutRun CD32X's debug core (fpga/ordbg, ordbg_model.h): map_ssf and a recorder answering cart 0x3E0000-0x3EFFFF
-  //MD+ (the EverDrive's CD audio from its SD card, krikzz mapper/lib_base/mdp.sv): its OS turns it on for a ROM with
-  //a .cue of the same name beside it - here the pak's "mdplus" attribute (the frontend: such a .cue beside the launcher)
-  //or ARES_MDPLUS=1.  The registers only: "RATE" at 0x3f7f6 once 0xcd54 was written at 0x3f7fa, commands at 0x3f7fe
-  //printed, no sound.  Console, 23 Nov 2026 (OutRun CD32X V33): a 68000 write there with RV = 1 reaches the cart on a
-  //32X (and its RAM: 0x3f7fa read back cd54), a .32X started with its .cue has MD+ on, and the SH2s read "RATE".
-  bool mdp = false, mdpOpen = false;
   bool ordbg = false;                       //rbfModel == "ordbg"
   OrDbg od;
   //OutRun CD32X's renderer core (fpga/orfx, orfx/orfx_board.h): the debug core above plus the renderer answering cart
@@ -534,6 +528,7 @@ struct EverDrivePro : Interface {
   //full queue; the 68000 writing the cart while the engine composes (it reads the PSRAM then). Its SRAM starts with a
   //pattern, as the cart's starts with garbage. CARTFX_TRACE=1 prints each GO. Not modelled: the save state, the
   //engine's accesses done again (counters 5 and 6 stay 0). A green run here is never a console pass.
+  MDPlus mdp;   //(the EverDrive's MD+: mdp.hpp)
   bool cfxOn = false;
   cfx_t cfx = {};
   std::vector<uint16_t> cfxSram;
@@ -626,9 +621,6 @@ struct EverDrivePro : Interface {
       for(u32 n : range(0x40000)) cfxSram[n] = (u16)(n * 0x9e37 + 0x5a5a);
       cfxReset();
     }
-    mdp = pak->attribute("mdplus").boolean() || getenv("ARES_MDPLUS");
-    mdpOpen = false;
-    if(mdp) print("[EverDrive PRO] MD+ on (registers only, no sound)\n");
     dracx = rbfModel == "dracx";
     orfx = rbfModel == "orfx";
     ordbg = rbfModel == "ordbg" || orfx;
@@ -649,6 +641,7 @@ struct EverDrivePro : Interface {
       }
     }
 
+    mdp.load(cartridge->node, pak->attribute("mdpCue"));   //(a .cue beside the game: the EverDrive's OS turns MD+ on)
     program.clear();
     if(auto fp = pak->read("program.rom")) {
       program.resize(min((u32)fp->size(), (u32)16_MiB));
@@ -701,14 +694,8 @@ struct EverDrivePro : Interface {
   }
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
+    if(mdp.on) { n16 v; if(mdp.read((u32)(n22)address & ~1u, v)) return v; }   //(MD+ answers before the mapper)
     u32 word = offset(address) >> 1;
-    if(mdp && mdpOpen) {   //MD+ (krikzz mdp.sv): the overlay's registers answer at these bus addresses, whatever the banks
-      u32 local = (n22)address & ~1u;
-      if(local == 0x3f7f6) return 0x5241;   //"RA"
-      if(local == 0x3f7f8) return 0x5445;   //"TE"
-      if(local == 0x3f7fc) return 0;        //the response
-      if(local == 0x3f7fe) return 0;        //the command's state: 0 = done
-    }
     if(orfx) {
       u32 local = (n22)address; u16 v;
       if(fx.read(local, v, nowUs(), [&](u32 a) -> u16 { return (u16)ram[a >> 1]; })) return v;
@@ -759,18 +746,20 @@ struct EverDrivePro : Interface {
     return ram[word];
   }
 
+  auto writeBus(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(upper && lower) mdp.write((u32)(n22)address & ~1u, data);   //(mdp.sv takes a word write)
+  }
+
+  auto vblank(bool line) -> void override {
+    if(line) mdp.frame(Region::PAL() ? 49.701 : 59.923);
+  }
+
+  auto unload() -> void override {
+    mdp.unload(cartridge->node);
+  }
+
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
-    if(mdp) {   //MD+: 0x3f7fa = 0xcd54 opens the overlay, 0x3f7fe takes a command (no sound here: the command is printed)
-      u32 local = (n22)address & ~1u;
-      if(local == 0x3f7fa) mdpOpen = data == 0xcd54;
-      if(local == 0x3f7fe && mdpOpen) {
-        u32 c = data >> 8, t = data & 0xff;
-        if(c == 0x11) fprintf(stderr, "[MD+] play track %u once\n", t);
-        else if(c == 0x12) fprintf(stderr, "[MD+] play track %u, repeating\n", t);
-        else if(c == 0x13) fprintf(stderr, "[MD+] stop\n");
-        else fprintf(stderr, "[MD+] command %04x\n", (u32)data);
-      }
-    }
+    if(mdp.on && upper && lower) mdp.write((u32)(n22)address & ~1u, data);
     if(ordbg && ((u32)(n22)address >> 16) != 0x3e) od.access(offset(address), true, data, (u32)(n22)address >> 19, nowUs());
     if(gotx && offset(address) >> 19 == GxBank) gxWrite((offset(address) & 0x7ffff), upper, lower, data);   //(map_got takes any write there, docs/36)
     if(gotx && gx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != GxBank) {
@@ -868,6 +857,7 @@ struct EverDrivePro : Interface {
   }
 
   auto power(bool reset) -> void override {
+    mdp.power();
     if(cfxOn) cfxReset();   //(fpga-cartfx: off until the key)
     dx = {};   //(dracx: the engine at its reset until the start read)
     od.reset(reset);   //(ordbg: off until its key; the resets counted)

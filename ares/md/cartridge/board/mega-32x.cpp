@@ -85,8 +85,8 @@ struct Mega32X : Interface {
         //0x03f7fe: whether the cart sees them on a 32X is the console's to say, this shows that they were made)
         static int w0log = -1;
         if(w0log < 0) w0log = getenv("ARES_W0_LOG") ? 1 : 0;
-        if(w0log) fprintf(stderr, "W0 write %06x = %04x (RV=1; lost in this model)\n", (u32)address, (u32)data);
-        return;
+        if(w0log) fprintf(stderr, "W0 write %06x = %04x (RV=1; the cart's memory takes none)\n", (u32)address, (u32)data);
+        return board->writeBus(upper, lower, address, data);   //(the cart's memory takes none; MD+'s registers see the bus: mdp.hpp)
       }
       return board->write(upper, lower, address, data);
     }
@@ -112,6 +112,7 @@ struct Mega32X : Interface {
   }
 
   auto vblank(bool line) -> void override {
+    board->vblank(line);   //(the inner board's own: the EverDrive PRO's MD+ plays a frame's samples)
     return m32x.vblank(line);
   }
 
