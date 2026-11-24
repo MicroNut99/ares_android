@@ -81,8 +81,8 @@ extern "C" {
                                        next SYNC, the wrong-unit count +1, the GO not run. The game reads the status
                                        after each frame (orfx_verdict, port/orfx/orfx_send.cpp) and sends again */
 #define ORFX_OP_SUM      0x7000     /* (kit 13, status bit 6) 0x7000 | k: the core adds up a memory nothing else checks,
-                                       as it reads it itself - k 0-15 a page of tile RAM (2,048 words, 0.2 ms), k 16
-                                       the graphics in the second PSRAM (688,128 words, 110 ms). Like GO: only straight
+                                       as it reads it itself - k 0-15 a page of tile RAM (2,048 words, 0.3 ms), k 16
+                                       the graphics in the second PSRAM (688,128 words, 138 ms). Like GO: only straight
                                        after a right CHECK; the core is busy meanwhile. The sum (a picture's kind: two
                                        words a 32-bit number, the first the high half, modulo 2^32) is status words
                                        16-17 (ORFX_STATUS + 0x20, + 0x22); word 18 (+ 0x24): k in bits 15-11, the

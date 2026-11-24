@@ -238,6 +238,11 @@ struct Session::Impl : ares::Platform {
         if(rom.size() < 0x200) return "Could not read the EverDrive launcher ROM " + options.boot;
         ramCartPak->setAttribute("bootable", true);  //the launcher boots first (CART_IN asserted)
         ramCartPak->append("program.rom", rom);
+        {   //MD+: the EverDrive's OS turns it on for a ROM with a .cue of the same name beside it
+          auto dot = options.boot.find_last_of('.');
+          auto cue = (dot == std::string::npos ? options.boot : options.boot.substr(0, dot)) + ".cue";
+          if(nall::file::exists(toNall(cue))) { ramCartPak->setAttribute("mdplus", true); log("EverDrive PRO: " + cue + " beside the launcher: MD+ on"); }
+        }
         log("EverDrive PRO: booting the launcher " + options.boot + " first");
         //the cart's FPGA configuration: mega-pro.rbf in the launcher's folder, as the EverDrive menu
         //loads it (everdrive-pro.cpp identifyRbf)

@@ -73,7 +73,7 @@ struct OrFxTraps {
   u32 fDup = 0, fGap = 0, fPair = 0, fSlow = 1, fHang = 0, fPic = 0, fSt = 0, fTile = 0, fGfx = 0;
   u32 nPic = 0, nSt = 0, nTile = 0;      //(words given wrong on purpose; bits of tile RAM turned over)
   u32 nSum = 0;                          //(sums the game asked for)
-  u32 kit = 13;                          //(ARES_ORFX_KIT)
+  u32 kit = 14;                          //(ARES_ORFX_KIT; 14: the picture read ahead - status bit 7; console 22 Nov 2026)
   u32 rnd = 12345;
   auto oneIn(u32 k) -> bool { if(!k) return false; rnd = rnd * 1103515245u + 12345u; return (rnd >> 8) % k == 0; }
   bool summaryAt = false;
@@ -190,7 +190,7 @@ struct OrFx {
       case 18: v = t.kit >= 13 ? (u16)(f->sum_k << 11 | f->n_sum) : 0; break;
       case 0: v = 0x4f52; break;
       case 1: v = 0x4658; break;
-      case 2: v = (busy(us) ? 1 : 0) | 4 | (t.kit >= 11 ? 8 : 0) | (t.kit >= 12 ? 0x20 : 0) | (t.kit >= 13 ? 0x40 : 0) | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures; bit 5: kit 12 - the picture's sum; bit 6: kit 13 - SUM)
+      case 2: v = (busy(us) ? 1 : 0) | 4 | (t.kit >= 11 ? 8 : 0) | (t.kit >= 12 ? 0x20 : 0) | (t.kit >= 13 ? 0x40 : 0) | (t.kit >= 14 ? 0x80 : 0) | shown() << 4 | (f->bad ? 0x200 : 0) | (f->gap ? 0x400 : 0); break;   //(bit 3: run-length pictures; bit 5: kit 12 - the picture's sum; bit 6: kit 13 - SUM)
       case 3: v = f->frames; break;
       case 4: v = lastTime20; break;
       case 5: v = f->slots[shown()]; break;

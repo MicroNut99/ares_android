@@ -106,6 +106,9 @@ struct EverDrivePro : Interface {
     {"d1616d7617932b409c01605f12344af275fec8c25b0a69eca50c20aaef137b75", "krikzz map_svp (Virtua Racing's SVP)", ""},
     {"82df47ae5e547e9ab496dd64e04a072bbeb976b35369a61c79123cac8bc8b5a2", "krikzz map_mcd (the Mega-CD core)", ""},
     {"ca5c1423c347d1ef7279362ac30905f1d9cca272a0b5181a1c7416af563caa80", "krikzz SE (the simplified mapper)", ""},
+    //OutRun CD32X (MicroNut99/cannonballcd32x fpga/orfx), built by the owner with Quartus: kit 13 (13 Nov 2026), kit 14 (22 Nov)
+    {"16b06e0ec7cb77d7543f09cca1b7fe3945ab8ccec76a882f95a8a66df68be199", "OutRun CD32X's renderer, kit 13", "orfx"},
+    {"e2a3494875fe1c34a8486be0937490359874d7a9de461d89b7fc2864a53c884c", "OutRun CD32X's renderer, kit 14 (the picture read ahead)", "orfx"},
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "ordbg", "orfx"};    //the models this board has (more as cores are added)
 
@@ -146,6 +149,12 @@ struct EverDrivePro : Interface {
   //Not modelled: the engine's holds of the master clock for its own memories (no time in the game's), the save state.
   bool dracx = false;                       //rbfModel == "dracx"
   //OutRun CD32X's debug core (fpga/ordbg, ordbg_model.h): map_ssf and a recorder answering cart 0x3E0000-0x3EFFFF
+  //MD+ (the EverDrive's CD audio from its SD card, krikzz mapper/lib_base/mdp.sv): its OS turns it on for a ROM with
+  //a .cue of the same name beside it - here the pak's "mdplus" attribute (the frontend: such a .cue beside the launcher)
+  //or ARES_MDPLUS=1.  The registers only: "RATE" at 0x3f7f6 once 0xcd54 was written at 0x3f7fa, commands at 0x3f7fe
+  //printed, no sound.  Console, 23 Nov 2026 (OutRun CD32X V33): a 68000 write there with RV = 1 reaches the cart on a
+  //32X (and its RAM: 0x3f7fa read back cd54), a .32X started with its .cue has MD+ on, and the SH2s read "RATE".
+  bool mdp = false, mdpOpen = false;
   bool ordbg = false;                       //rbfModel == "ordbg"
   OrDbg od;
   //OutRun CD32X's renderer core (fpga/orfx, orfx/orfx_board.h): the debug core above plus the renderer answering cart
@@ -494,6 +503,9 @@ struct EverDrivePro : Interface {
 
   auto load() -> void override {
     identifyRbf();
+    mdp = pak->attribute("mdplus").boolean() || getenv("ARES_MDPLUS");
+    mdpOpen = false;
+    if(mdp) print("[EverDrive PRO] MD+ on (registers only, no sound)\n");
     dracx = rbfModel == "dracx";
     orfx = rbfModel == "orfx";
     ordbg = rbfModel == "ordbg" || orfx;
@@ -567,6 +579,13 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(mdp && mdpOpen) {   //MD+ (krikzz mdp.sv): the overlay's registers answer at these bus addresses, whatever the banks
+      u32 local = (n22)address & ~1u;
+      if(local == 0x3f7f6) return 0x5241;   //"RA"
+      if(local == 0x3f7f8) return 0x5445;   //"TE"
+      if(local == 0x3f7fc) return 0;        //the response
+      if(local == 0x3f7fe) return 0;        //the command's state: 0 = done
+    }
     if(orfx) {
       u32 local = (n22)address; u16 v;
       if(fx.read(local, v, nowUs(), [&](u32 a) -> u16 { return (u16)ram[a >> 1]; })) return v;
@@ -614,6 +633,17 @@ struct EverDrivePro : Interface {
   }
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(mdp) {   //MD+: 0x3f7fa = 0xcd54 opens the overlay, 0x3f7fe takes a command (no sound here: the command is printed)
+      u32 local = (n22)address & ~1u;
+      if(local == 0x3f7fa) mdpOpen = data == 0xcd54;
+      if(local == 0x3f7fe && mdpOpen) {
+        u32 c = data >> 8, t = data & 0xff;
+        if(c == 0x11) fprintf(stderr, "[MD+] play track %u once\n", t);
+        else if(c == 0x12) fprintf(stderr, "[MD+] play track %u, repeating\n", t);
+        else if(c == 0x13) fprintf(stderr, "[MD+] stop\n");
+        else fprintf(stderr, "[MD+] command %04x\n", (u32)data);
+      }
+    }
     if(ordbg && ((u32)(n22)address >> 16) != 0x3e) od.access(offset(address), true, data, (u32)(n22)address >> 19, nowUs());
     if(gotx && offset(address) >> 19 == GxBank) gxWrite((offset(address) & 0x7ffff), upper, lower, data);   //(map_got takes any write there, docs/36)
     if(gotx && gx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != GxBank) {
