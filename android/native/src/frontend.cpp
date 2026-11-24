@@ -348,7 +348,7 @@ struct Session::Impl : ares::Platform {
 
     if(machine == Machine::MegaCD32X) {
       if((error = makeRamCart(request.ramCart)) != "") return error;
-    } else if(machine == Machine::Mega32X && disc && request.ramCart.everdrive) {
+    } else if(machine == Machine::Mega32X && request.ramCart.everdrive) {   //(also with no disc: a 32X and the EverDrive alone)
       //the ROM loaded first, as desktop ares: a "SEGA SSF" ROM with the EverDrive PRO chosen goes into
       //the EverDrive and boots from it (as the PRO runs a ROM from its SD card); others stay a cartridge
       auto fp = cart->pak->read("program.rom");
