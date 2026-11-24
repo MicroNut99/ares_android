@@ -24,6 +24,14 @@ auto M32X::PWM::main() -> void {
     if (cycle != 1 && (lmode.bit(0) ^ lmode.bit(1) || rmode.bit(0) ^ rmode.bit(1))) {
       lsample = lfifo.read();
       rsample = rfifo.read();
+      { //ARES_PWM_LOG=1: once per 32768 samples, the left sample's range (stderr)
+        static int on = -1; if(on < 0) on = getenv("ARES_PWM_LOG") ? 1 : 0;
+        if(on) {
+          static u32 n = 0; static s32 lo = 4095, hi = 0; static u32 changes = 0; static s32 last = -1;
+          s32 v = (s32)lsample; if(v < lo) lo = v; if(v > hi) hi = v; if(v != last) changes++; last = v;
+          if(++n == 32768) { fprintf(stderr, "[pwm] cycle %d samples %d..%d (centre %d) changes %u\n", (int)cycle, lo, hi, (int)cycle / 2, changes); n = 0; lo = 4095; hi = 0; changes = 0; }
+        }
+      }
 
       if (periods++ == n4(timer - 1)) {
         periods = 0;

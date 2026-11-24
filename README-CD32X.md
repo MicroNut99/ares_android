@@ -110,6 +110,56 @@ The log says what it found: `[EverDrive PRO] mega-pro.rbf: krikzz map_ssf (the e
 adds an engine to the cart adds its model to `ares/md/cartridge/board/everdrive-pro.cpp` (`rbfModels`) on a
 branch, with the console's word on it - a green ares run is never a console pass.
 
+### Error traps and injected faults (11 Nov 2026)
+
+ares answers every read at once, has no address glitches, loses no word on the bus and has no MCU taking the cart's
+memory over USB. The console has all of these. So the models **trap** what the real hardware would get wrong and can
+**inject** the console's faults, to exercise a game's handling of them. A green ares run is never a console pass;
+a run with no trap and with the faults handled is the least to ask before a console run.
+
+| Trap / fault | Where | What it catches or does | Fatal (`stop`) |
+|---|---|---|---|
+| `ARES_ORFX_TRAP=log\|stop\|off` | board/orfx/orfx_board.h (OutRun CD32X's renderer, model `orfx`) | the traps below: one line each (the first 20 of a kind), a count at the end; `stop` ends the run at the first fatal one (exit code 77) | |
+| WORD_WHILE_BUSY | orfx | a command word or SYNC while the core draws: the real core queues 1024 and applies them after the frame; the model would at once - the game must wait for idle | yes |
+| SEQ_GAP | orfx | a word lost (same A17 as the last word, another address): the core ignores the rest of the unit; the game must send it again | no |
+| SEQ_DUP | orfx | a word read twice (same A17 and address): dropped | no |
+| UNIT_WRONG | orfx | a unit's CHECK wrong (sum or count) or its GO refused: none of its writes are made (they wait for a right CHECK) | no |
+| NOT_ON | orfx | a command word before the core's key (after a console reset the core is off) | yes |
+| BAD_OP / DATA_OVERRUN | orfx | in step: an unknown command, a SELECT of no memory, DATA with nothing selected or past the memory's end | yes (no with faults injected) |
+| SHOW_DRAWING / READ_DRAWING | orfx | the buffer being drawn shown, or its picture or colours read | yes |
+| SLOW / STUCK | orfx | a frame over 33 ms / 500 ms of the core's time | no / yes |
+| RUNAWAY | orfx | a sprite line reading over 1024 words (garbage sprite data: seconds of drawing) | yes |
+| SLOTS | orfx | more than 253 colours in a frame | no |
+| ROM1_READ | everdrive-pro.cpp, orfx | the console read banks 16-30 while the core is on (the core's PSRAM: on the console the answer is the core's bus) | yes |
+| `ARES_ORFX_FAULT=dup=N,gap=N,pair=N,slow=K,hang=F,pic=N,st=N` | orfx | inject: a word in N read twice / lost / two in a row lost (A17 then looks right: only the CHECK's count catches it); the core K times slower; the core hangs after F frames; `pic`: 1 read in N of the picture, its colours or its line table arrives as another word (the console's blinking pixels, OutRun run 11: the V9 disc counts them - `E<n>/<m>` - and reads the picture again); `st`: a status word with a bit wrong (the game reads those until two reads agree). The words given wrong are counted at the end | |
+| `ARES_ORFX_FAULT=tile=N,gfx=1` | orfx | inject into the memories only the core reads (no check on the bus sees them): `tile`: every N frames one bit of the core's tile RAM turns over; `gfx`: one bit of its copy of the graphics is wrong from the start. OutRun's V11 disc asks the core (kit 13: `SUM`, status bit 6, words 16-18) for the sum of a page of tile RAM every 8th picture and of the graphics before the first one, compares with its own and sends a wrong page again: its lower status row ends in `K`, or in `!` with `GFX <the core's>/<the game's> TILE <pages> P<last>` above every other second. The sums asked are counted at the end | |
+| `ARES_ORFX_KIT=12` (`11`, `10`) | orfx | the core as an older kit had it: 12 no SUM (status bit 6 clear; a SUM word is a BAD_OP trap), 11 nor the picture's sum (bit 5), 10 nor run-length pictures (bit 3). What a disc meets when an old mega-pro.rbf is still on the SD card: OutRun's console run of 13 Nov was a V12 disc on a kit 10 core, and `=10` gives its screen to the character (`PL35840`, no `K`); the V13 disc says `OLD FPGA CORE ON SD` | |
+| `ARES_EDP_USB=period=P,len=L,at=A,chip=C` | everdrive-pro.cpp (any model) | inject a USB read of the cart's memory (edlink memrd): every P ms, L bytes from MCU address A on PSRAM chip C (0: banks 0-15, 1: banks 16-31), ~1 byte a us; a console read of that chip meanwhile gets the word at the MCU's address, as krikzz's mem_ctrl does. `[edp usb]` lines, a count at the end | |
+| `ARES_32X_TRAP=1` | md/m32x (`m32xTrap`) | an SH2 access to the VDP registers, frame buffer or palette while FM = 0, a 68000 one while FM = 1 (the console makes the SH2 wait there; ares let it through) | |
+| chip 1 is the engine's | everdrive-pro.cpp (dracx, gotx) | a console read of banks 16-30 once DraculaX's engine is on | |
+| `DRACX_FEEDLOG=<file>` | everdrive-pro.cpp | every sector DraculaX's core asks for and gets, in order | |
+| `ARES_RV_GARBAGE=1`, `ARES_RV_LOG=1` | everdrive-pro.cpp | an SH2 read of the cart while RV = 1: the EverDrive's answer (garbage) for every cart / which SH2 read where | |
+
+**What ares cannot trap at all: the pins.** ares' memories are ideal: a write lands where the model says. On the
+console a core that shares the EverDrive's SRAM with the console must never let the SRAM's address change while its
+WE is on (OutRun CD32X kit 9: stray tiles in tile RAM and specks in the picture, never seen here). That trap lives
+in the core's Verilator bench (CannonballCD32X `fpga/orfx/sim/tb_orfx.cpp`, "TRAP SRAM"); a core is not ready for
+the console until its bench has the memories' own rules as traps and counts none. The whole report:
+[README-FPGA-FINDINGS.md](README-FPGA-FINDINGS.md) section 7.
+**And the bus between two readers.** ares gives every read the right word. On the console both SH2s read the cart
+over one bus, and a core whose answer follows the address pins loses it the moment the address moves on to the
+other SH2's read - OutRun CD32X run 11: single words of the picture wrong for a frame, in fixed places. The trap
+is the bench's again ("TRAP HOLD": the address moves on 40-100 ns before the data is taken; the answer must not
+change), the cure a registered answer held 80 ns, and the game's own check of what it read (section 7, item 7).
+`ARES_ORFX_FAULT=pic=N` gives wrong words on purpose to exercise that check.
+
+**The trap ares cannot have, and what replaces it:** the USB side taking the cart's memory during a run. It froze
+DraculaX CD32X v14-v25 (MicroNut99/DraculaX_32X docs/177-178): the MCU's address and OE replace the console's on the
+chip, nothing waits, nothing is told. `ARES_EDP_USB` shows what a game does when it happens; on the console, OutRun's
+renderer core counts the MCU's accesses of the cart's memory while it is on (`fpga/orfx`, debug registers 80-95, word
+15 bits 11-0; `or_poll.py` prints "MCU MEMORY ACCESSES" when any). The rule for every kit: **during a run the USB side
+reads only the status page (0x1830000), never 0x0000000-0x17FFFFF.**
+
 **PC Engine CD cores: `dracx` and `gotx` (12 Nov 2026).** Dracula X CD32X (MicroNut99/DraculaX_32X) and Gate of
 Thunder CD32X (MicroNut99/Gate-of-Thunder_CD32X) run a whole PC Engine CD on the cart. Both boot and play on the
 console. ares models each with the port's own C machine (`ares/md/cartridge/board/dracx/`, `gotx/`), chosen by a

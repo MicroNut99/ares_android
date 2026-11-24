@@ -124,8 +124,11 @@ struct EverDrivePro : Interface {
     {"21a53854c48359c8cc506c1e7eb8036ebb3f5dd00f4138fccfb965d5896927a9", "cartfx v2.1 for Hurrican CD32X", "cartfx-hur-v22"},
     {"74d8b8b5e840222111b1ca96d95186912da063e1d0fa19f313ba8b66b884ac4e", "cartfx v2.1 for Jazz CD32X REV", "cartfx-oj-v22"},
     {"768bcc63ed39b01e62f72ba4c3819b3a06f5938c350a14c3bad1c82d96156c1a", "cartfx v2.1 for SuperTux CD32X REV", "cartfx-stx-v22"},
+    //OutRun CD32X (MicroNut99/cannonballcd32x fpga/orfx), built by the owner with Quartus: kit 13 (13 Nov 2026), kit 14 (22 Nov)
+    {"16b06e0ec7cb77d7543f09cca1b7fe3945ab8ccec76a882f95a8a66df68be199", "OutRun CD32X's renderer, kit 13", "orfx"},
+    {"e2a3494875fe1c34a8486be0937490359874d7a9de461d89b7fc2864a53c884c", "OutRun CD32X's renderer, kit 14 (the picture read ahead)", "orfx"},
   };
-  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
+  static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "ordbg", "orfx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
                                                "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22"};    //the models this board has (more as cores are added)
 
@@ -165,6 +168,61 @@ struct EverDrivePro : Interface {
   //runs it at the PC Engine's master clock, and an access to those banks brings it to the accessing CPU's time first.
   //Not modelled: the engine's holds of the master clock for its own memories (no time in the game's), the save state.
   bool dracx = false;                       //rbfModel == "dracx"
+  //OutRun CD32X's debug core (fpga/ordbg, ordbg_model.h): map_ssf and a recorder answering cart 0x3E0000-0x3EFFFF
+  //MD+ (the EverDrive's CD audio from its SD card, krikzz mapper/lib_base/mdp.sv): its OS turns it on for a ROM with
+  //a .cue of the same name beside it - here the pak's "mdplus" attribute (the frontend: such a .cue beside the launcher)
+  //or ARES_MDPLUS=1.  The registers only: "RATE" at 0x3f7f6 once 0xcd54 was written at 0x3f7fa, commands at 0x3f7fe
+  //printed, no sound.  Console, 23 Nov 2026 (OutRun CD32X V33): a 68000 write there with RV = 1 reaches the cart on a
+  //32X (and its RAM: 0x3f7fa read back cd54), a .32X started with its .cue has MD+ on, and the SH2s read "RATE".
+  bool mdp = false, mdpOpen = false;
+  bool ordbg = false;                       //rbfModel == "ordbg"
+  OrDbg od;
+  //OutRun CD32X's renderer core (fpga/orfx, orfx/orfx_board.h): the debug core above plus the renderer answering cart
+  //0x380000-0x3DFFFF once its key is read
+  bool orfx = false;                        //rbfModel == "orfx"
+  OrFx fx;
+
+  //A fault the console has and the emulator cannot have by itself: a USB read of the cart's memory (edlink memrd) while
+  //the game runs. In krikzz's base (lib_base pi_map.sv, dma.sv, mem_ctrl) the MCU's address and OE then replace the
+  //console's on that PSRAM chip: a console read of it gets the word at the MCU's address, nothing waits, nothing is
+  //told (MicroNut99/DraculaX_32X docs/177-178: every freeze of its v14-v25 came with such a read). To exercise it:
+  //  ARES_EDP_USB="period=3000,len=2048,at=0x1ff800,chip=0"  every `period` ms a read of `len` bytes from MCU address
+  //  `at` (chip 0 = banks 0-15, chip 1 = banks 16-31), about 1 byte a microsecond; each console read of that chip
+  //  meanwhile gets the MCU's word. "[edp usb]" lines (the first 20) and a count at the end. The real core counts such
+  //  accesses for the MCU (fpga/orfx registers 80-95, word 15) - the rule is: never read the cart's memory in a run.
+  struct EdpUsb {
+    u32 period = 0, len = 0x800, at = 0x1ff800, chip = 0, hits = 0;
+    EdpUsb() {
+      auto e = getenv("ARES_EDP_USB"); if(!e) return;
+      for(const char* p = e; p && *p; p = strchr(p, ','), p = p ? p + 1 : nullptr) {
+        const char* q = strchr(p, '='); if(!q) break;
+        u32 v = (u32)strtoul(q + 1, nullptr, 0);
+        if(!strncmp(p, "period", 6)) period = v; else if(!strncmp(p, "len", 3)) len = v;
+        else if(!strncmp(p, "at", 2)) at = v; else if(!strncmp(p, "chip", 4)) chip = v & 1;
+      }
+      fprintf(stderr, "[edp usb] a USB read of chip %u, %u bytes from 0x%07x, every %u ms\n", chip, len, at, period);
+      atexit([] { fprintf(stderr, "[edp usb] console reads that got the MCU's word: %u\n", self().hits); });
+    }
+    static auto self() -> EdpUsb& { static EdpUsb u; return u; }
+    //the MCU's word for a console read of this word (true), or not now
+    template<typename Rd> auto take(u32 word, u64 us, u32 words, Rd ram, u16& v) -> bool {
+      if(!period || (word >> 22 & 1) != chip) return false;      //(word: 23-bit word index; bit 22 = 8 MB = chip 1)
+      u64 ph = us % ((u64)period * 1000);
+      if(ph >= len) return false;
+      u32 mw = ((at + (u32)ph) >> 1) % words;
+      v = ram(mw);
+      if(++hits <= 20) fprintf(stderr, "[edp usb] t=%.3f s: a console read of word 0x%06x got the MCU's (0x%06x)\n", us / 1e6, word, mw);
+      return true;
+    }
+  };
+  EdpUsb& usb = EdpUsb::self();
+  u32 odV = 0; u64 odLines = 0;           //the model's time: the VDP's lines counted (63.6 us each, NTSC; the
+  auto nowUs() -> u64 {                   //threads' clocks are not absolute: the scheduler subtracts from them)
+    u32 v = vdp.vcounter();
+    u32 d = (v - odV) & 511; if(d > 100) d = 1;    //(the counter jumps from its bottom line to its top: one line)
+    odLines += d; odV = v;
+    return odLines * 63556 / 1000;
+  }
   struct Dx {
     bool on = false;                        //started (the read of + 0x40080)
     bool armed = false;                     //the load port's word 0xFF was 'DXON' (DraculaX docs/102): the start read may start
@@ -568,7 +626,12 @@ struct EverDrivePro : Interface {
       for(u32 n : range(0x40000)) cfxSram[n] = (u16)(n * 0x9e37 + 0x5a5a);
       cfxReset();
     }
+    mdp = pak->attribute("mdplus").boolean() || getenv("ARES_MDPLUS");
+    mdpOpen = false;
+    if(mdp) print("[EverDrive PRO] MD+ on (registers only, no sound)\n");
     dracx = rbfModel == "dracx";
+    orfx = rbfModel == "orfx";
+    ordbg = rbfModel == "ordbg" || orfx;
     gotx = rbfModel == "gotx";
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
@@ -639,6 +702,27 @@ struct EverDrivePro : Interface {
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     u32 word = offset(address) >> 1;
+    if(mdp && mdpOpen) {   //MD+ (krikzz mdp.sv): the overlay's registers answer at these bus addresses, whatever the banks
+      u32 local = (n22)address & ~1u;
+      if(local == 0x3f7f6) return 0x5241;   //"RA"
+      if(local == 0x3f7f8) return 0x5445;   //"TE"
+      if(local == 0x3f7fc) return 0;        //the response
+      if(local == 0x3f7fe) return 0;        //the command's state: 0 = done
+    }
+    if(orfx) {
+      u32 local = (n22)address; u16 v;
+      if(fx.read(local, v, nowUs(), [&](u32 a) -> u16 { return (u16)ram[a >> 1]; })) return v;
+      if(fx.on && bank[local >> 19] >= 16 && bank[local >> 19] != 31 && fx.f)   //(the second PSRAM: the core's, while it is on;
+                                                                            // bank 31 is the battery RAM, map_ssf's mem_ce 2)
+        fx.t.trap(OrFxTraps::ROM1_READ, fx.f->frames, nowUs(), "cart 0x%06x is bank %u", local, (u32)bank[local >> 19]);
+    }
+    if(ordbg) {
+      u32 local = (n22)address; u64 us = nowUs();
+      if(local >> 16 == 0x3e) {
+        uint8_t b8[8]; for(u32 n : range(8)) b8[n] = bank[n];
+        uint16_t v; if(od.read(local & 0xffff, v, b8, writeEnable, us)) return v;
+      } else od.access(offset(address), false, 0, local >> 19, us);
+    }
     if(gotx) {
       u32 off = (word & 0x3ffff) << 1; n16 v;
       if(word >> 18 == GxBank && gxRead(off, v)) return v;
@@ -662,6 +746,7 @@ struct EverDrivePro : Interface {
       n16 v;
       if(cfxRead((u32)(n22)address, v)) return v;
     }
+    if(usb.period) { u16 v; if(usb.take(word, nowUs(), ram.size(), [&](u32 i) -> u16 { return (u16)ram[i]; }, v)) return v; }
     if(!cpu.active()) {  //an SH2 (the 68000 reads through Bus / the 32X wrapper on its own thread)
       u64 now = m32x.shm.active() ? m32x.shm.clock() : m32x.shs.clock();
       sh2Word = word;
@@ -675,6 +760,18 @@ struct EverDrivePro : Interface {
   }
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(mdp) {   //MD+: 0x3f7fa = 0xcd54 opens the overlay, 0x3f7fe takes a command (no sound here: the command is printed)
+      u32 local = (n22)address & ~1u;
+      if(local == 0x3f7fa) mdpOpen = data == 0xcd54;
+      if(local == 0x3f7fe && mdpOpen) {
+        u32 c = data >> 8, t = data & 0xff;
+        if(c == 0x11) fprintf(stderr, "[MD+] play track %u once\n", t);
+        else if(c == 0x12) fprintf(stderr, "[MD+] play track %u, repeating\n", t);
+        else if(c == 0x13) fprintf(stderr, "[MD+] stop\n");
+        else fprintf(stderr, "[MD+] command %04x\n", (u32)data);
+      }
+    }
+    if(ordbg && ((u32)(n22)address >> 16) != 0x3e) od.access(offset(address), true, data, (u32)(n22)address >> 19, nowUs());
     if(gotx && offset(address) >> 19 == GxBank) gxWrite((offset(address) & 0x7ffff), upper, lower, data);   //(map_got takes any write there, docs/36)
     if(gotx && gx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != GxBank) {
       gxTrap(1, {"the console wrote PSRAM chip 1 (bank ", offset(address) >> 19, ") after the start: on the cart the engine owns it - write lost"});
@@ -727,6 +824,7 @@ struct EverDrivePro : Interface {
   auto writeIO(n1 upper, n1 lower, n24 address, n16 data) -> void override {
     if(address < 0xa130f0 || address > 0xa130ff) return;
     u32 n = address >> 1 & 7;
+    if(ordbg) od.regWrite(n, data);
     if(n == 0) {
       if(!data.bit(15)) return;  //P must be set
       mode32x     = data.bit(14);
@@ -772,6 +870,8 @@ struct EverDrivePro : Interface {
   auto power(bool reset) -> void override {
     if(cfxOn) cfxReset();   //(fpga-cartfx: off until the key)
     dx = {};   //(dracx: the engine at its reset until the start read)
+    od.reset(reset);   //(ordbg: off until its key; the resets counted)
+    fx.reset(reset);   //(orfx: off until its key)
     gx = {};   //(gotx: the same; off at the console's reset too, docs/36)
     for(u32 n : range(8)) bank[n] = n;
     mode32x = 0;

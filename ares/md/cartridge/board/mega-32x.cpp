@@ -76,7 +76,18 @@ struct Mega32X : Interface {
       //directly: console, 25 Oct 2026 (Mega EverDrive PRO, CD32X BootCamp EDCD.32X) - nothing landed
       //there until the copy went through another window with that bank mapped in.  The other windows
       //(0x080000-0x3fffff) and the cartridge at 0x400000 (a Mega CD booted its disc) take writes.
-      if(address <= 0x07ffff) return;
+      //console, 23 Nov 2026 (OutRun CD32X V33): a write at 0x03f7fa with RV = 1 did reach the cart (MD+ answered,
+      //and the cart's RAM read back cd54) - so not all of the first 512 KB is closed.  Those words go through;
+      //where the line is between them and the first bytes (25 Oct) is not known.
+      if(address >= 0x03f7f6 && address <= 0x03f7ff) return board->write(upper, lower, address, data);
+      if(address <= 0x07ffff) {
+        //ARES_W0_LOG=1: each such write on stderr (OutRun CD32X's MD+ commands are writes at cart 0x03f7fa /
+        //0x03f7fe: whether the cart sees them on a 32X is the console's to say, this shows that they were made)
+        static int w0log = -1;
+        if(w0log < 0) w0log = getenv("ARES_W0_LOG") ? 1 : 0;
+        if(w0log) fprintf(stderr, "W0 write %06x = %04x (RV=1; lost in this model)\n", (u32)address, (u32)data);
+        return;
+      }
       return board->write(upper, lower, address, data);
     }
   }

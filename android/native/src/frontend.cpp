@@ -238,6 +238,11 @@ struct Session::Impl : ares::Platform {
         if(rom.size() < 0x200) return "Could not read the EverDrive launcher ROM " + options.boot;
         ramCartPak->setAttribute("bootable", true);  //the launcher boots first (CART_IN asserted)
         ramCartPak->append("program.rom", rom);
+        {   //MD+: the EverDrive's OS turns it on for a ROM with a .cue of the same name beside it
+          auto dot = options.boot.find_last_of('.');
+          auto cue = (dot == std::string::npos ? options.boot : options.boot.substr(0, dot)) + ".cue";
+          if(nall::file::exists(toNall(cue))) { ramCartPak->setAttribute("mdplus", true); log("EverDrive PRO: " + cue + " beside the launcher: MD+ on"); }
+        }
         log("EverDrive PRO: booting the launcher " + options.boot + " first");
         //the cart's FPGA configuration: mega-pro.rbf in the launcher's folder, as the EverDrive menu
         //loads it (everdrive-pro.cpp identifyRbf)
@@ -348,7 +353,7 @@ struct Session::Impl : ares::Platform {
 
     if(machine == Machine::MegaCD32X) {
       if((error = makeRamCart(request.ramCart)) != "") return error;
-    } else if(machine == Machine::Mega32X && request.ramCart.everdrive) {
+    } else if(machine == Machine::Mega32X && request.ramCart.everdrive) {   //(also with no disc: a 32X and the EverDrive alone)
       //the ROM loaded first, as desktop ares: a "SEGA SSF" ROM with the EverDrive PRO chosen goes into
       //the EverDrive and boots from it (as the PRO runs a ROM from its SD card); others stay a cartridge.
       //(fpga-cartfx branch: with or without a disc - a plain 32X ROM from the menu, its mega-pro.rbf beside it)

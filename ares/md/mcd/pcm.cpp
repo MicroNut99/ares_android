@@ -110,9 +110,19 @@ auto MCD::PCM::write(n13 address, n8 data) -> void {
   } break;
 
   case 0x8: {  //ONOFF
+    //ARES_PCM_LOG=1: every channel switched on, with its start page, step and envelope (is a game's effect asked
+    //for at all? - OutRun CD32X's console run of 13 Nov had no effects)
+    static const bool pcmLog = getenv("ARES_PCM_LOG") != nullptr;
+    static u32 pcmOn = 0;
+    u32 ch = 0;
     for(auto& channel : channels) {
+      bool was = channel.enable;
       channel.enable = !(data & 1); data >>= 1;
       if(!channel.enable) channel.address = channel.start << 8 << 11;
+      if(pcmLog && channel.enable && !was && pcmOn++ < 200)
+        fprintf(stderr, "[pcm] channel %u on: start page %02x, step %04x, envelope %u, pan %02x, sound %s\n",
+                ch, (u32)channel.start, (u32)channel.step, (u32)channel.envelope, (u32)channel.pan, io.enable ? "on" : "OFF");
+      ch++;
     }
   } break;
 
