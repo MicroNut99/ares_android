@@ -496,6 +496,7 @@ struct EverDrivePro : Interface {
   //full queue; the 68000 writing the cart while the engine composes (it reads the PSRAM then). Its SRAM starts with a
   //pattern, as the cart's starts with garbage. CARTFX_TRACE=1 prints each GO. Not modelled: the save state, the
   //engine's accesses done again (counters 5 and 6 stay 0). A green run here is never a console pass.
+  MDPlus mdp;   //(the EverDrive's MD+: mdp.hpp)
   bool cfxOn = false;
   cfx_t cfx = {};
   std::vector<uint16_t> cfxSram;
@@ -857,6 +858,7 @@ struct EverDrivePro : Interface {
       }
     }
 
+    mdp.load(cartridge->node, pak->attribute("mdpCue"));   //(a .cue beside the game: the EverDrive's OS turns MD+ on)
     program.clear();
     if(auto fp = pak->read("program.rom")) {
       program.resize(min((u32)fp->size(), (u32)16_MiB));
@@ -910,6 +912,7 @@ struct EverDrivePro : Interface {
   }
 
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
+    if(mdp.on) { n16 v; if(mdp.read((u32)(n22)address & ~1u, v)) return v; }   //(MD+ answers before the mapper)
     u32 word = offset(address) >> 1;
     if(mxOn) {
       n16 v;
@@ -958,7 +961,20 @@ struct EverDrivePro : Interface {
     return ram[word];
   }
 
+  auto writeBus(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(upper && lower) mdp.write((u32)(n22)address & ~1u, data);   //(mdp.sv takes a word write)
+  }
+
+  auto vblank(bool line) -> void override {
+    if(line) mdp.frame(Region::PAL() ? 49.701 : 59.923);
+  }
+
+  auto unload() -> void override {
+    mdp.unload(cartridge->node);
+  }
+
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    if(mdp.on && upper && lower) mdp.write((u32)(n22)address & ~1u, data);
     if(mxOn && offset(address) >> 19 == MxBank) mxWrite(offset(address) & 0x7ffff, data);
     if(mxOn && mx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != MxBank) {
       mxTrap(2, {"the console wrote PSRAM chip 1 (bank ", offset(address) >> 19, ") after the start: on the cart the engine owns it - write lost"});
@@ -1060,6 +1076,7 @@ struct EverDrivePro : Interface {
   }
 
   auto power(bool reset) -> void override {
+    mdp.power();
     if(cfxOn) cfxReset();   //(fpga-cartfx: off until the key)
     if(tbOn) tbReset();     //(Tomba CD32X: off until the key)
     dx = {};   //(dracx: the engine at its reset until the start read)

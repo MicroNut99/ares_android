@@ -239,6 +239,17 @@ struct Session::Impl : ares::Platform {
         ramCartPak->setAttribute("bootable", true);  //the launcher boots first (CART_IN asserted)
         ramCartPak->append("program.rom", rom);
         log("EverDrive PRO: booting the launcher " + options.boot + " first");
+        //MD+: a .cue of the same name beside it - the EverDrive's OS turns MD+ on (everdrive-pro.cpp, mdp.hpp);
+        //ARES_MDP_CUE=<file> names another
+        {
+          auto dot = options.boot.find_last_of('.');
+          std::string cue = getenv("ARES_MDP_CUE") ? std::string{getenv("ARES_MDP_CUE")}
+                          : (dot == std::string::npos ? options.boot : options.boot.substr(0, dot)) + ".cue";
+          if(nall::file::exists(toNall(cue))) {
+            ramCartPak->setAttribute("mdpCue", toNall(cue));
+            log("EverDrive PRO: " + cue + " beside it - MD+ on");
+          }
+        }
         //the cart's FPGA configuration: mega-pro.rbf in the launcher's folder, as the EverDrive menu
         //loads it (everdrive-pro.cpp identifyRbf)
         if(!options.noRbf) {

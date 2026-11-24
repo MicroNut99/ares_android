@@ -76,7 +76,7 @@ struct Mega32X : Interface {
       //directly: console, 25 Oct 2026 (Mega EverDrive PRO, CD32X BootCamp EDCD.32X) - nothing landed
       //there until the copy went through another window with that bank mapped in.  The other windows
       //(0x080000-0x3fffff) and the cartridge at 0x400000 (a Mega CD booted its disc) take writes.
-      if(address <= 0x07ffff) return;
+      if(address <= 0x07ffff) return board->writeBus(upper, lower, address, data);
       return board->write(upper, lower, address, data);
     }
   }
@@ -101,6 +101,7 @@ struct Mega32X : Interface {
   }
 
   auto vblank(bool line) -> void override {
+    board->vblank(line);   //(the inner board's own: the EverDrive PRO's MD+ plays a frame's samples)
     return m32x.vblank(line);
   }
 

@@ -17,6 +17,7 @@ static urrfx::Engine* urrFx = nullptr;
 #include "realtec.cpp"
 #include "game-genie.cpp"
 #include "ram-cart.cpp"
+#include "mdp.hpp"
 #include "everdrive-pro.cpp"
 #include "mega-32x.cpp"
 #include "debugger.cpp"

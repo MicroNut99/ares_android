@@ -18,6 +18,9 @@ struct Interface {
   //a 68000 write that did not go to the cartridge (RAM, the VDP, the Mega CD, the 32X): a board whose
   //memory the console can disturb with such a write (the Mega EverDrive PRO with W = 1) models it here
   virtual auto disturb(n24 address, n16 data) -> void {}
+  //a 68000 write to the cart's first 512 KB with the 32X on: the cart's memory there takes none (mega-32x.cpp), but
+  //the bus carries it - the Mega EverDrive PRO's MD+ registers (mdp.hpp) see it
+  virtual auto writeBus(n1 upper, n1 lower, n24 address, n16 data) -> void {}
   //an SH2 read of the cart while the 68000 holds RV = 1: a real cartridge is held off by the 32X until
   //RV = 0; a board that answers the SH2 anyway, with garbage, returns true (the Mega EverDrive PRO)
   virtual auto answersDuringRV() -> bool { return false; }
