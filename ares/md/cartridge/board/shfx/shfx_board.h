@@ -49,7 +49,8 @@ struct ShFx {
   std::vector<u8> roms;
   u32 nRd = 0, nWr = 0, nReg = 0, nVbl = 0, nRoadCtl = 0, nLock = 0, rleSum = 0, rleMax = 0, rleN = 0;   //(SHFX_TRACE: a line a second)
   u16 lqLast = 0;
-  u16 dsw = 0xfe, steerStep = 8, sndPush = 0, frameCount = 0, conFrame = 0, conLast = 0, syncLine = 0;
+  bool keyed = false, keyHi = false;   //the key 'SH' 'ON' (0x18, 0x1A) starts the arcade, as map_shfx.sv (kit 7: the saved switches go in before it reads them)
+  u16 dsw = 0xfe, coin = 0xff, steerStep = 8, sndPush = 0, frameCount = 0, conFrame = 0, conLast = 0, syncLine = 0;
 
   auto start(const std::vector<u8>& pack) -> void {
     roms = pack;
@@ -76,7 +77,7 @@ struct ShFx {
   }
 
   auto inputs() -> shb_inputs {
-    shb_inputs in{0xff, (u8)dsw, {0x80, 0, 0, 0}};
+    shb_inputs in{0xff, (u8)dsw, {0x80, 0, 0, 0}, (u8)coin};
     if(!evs.empty()) {
       for(auto& e : evs) {
         if(e.k == "coin" && frame >= e.a && frame < e.a + 6) in.unknown &= ~0x01;
@@ -131,6 +132,7 @@ struct ShFx {
   //one line of the arcade's frame; at line 224 the picture into a buffer neither the newest nor the locked one
   auto step() -> void {
     if(!on) return;
+    if(!keyed) { if(++line == 262) line = 0; return; }   //(the core not started: no frame)
     shb_inputs in = inputs();
     long before = shb_pictures();
     shb_line(line, &in);
@@ -154,18 +156,19 @@ struct ShFx {
     if(!on) return false;
     if(local >= 0x160000 && local < 0x1a0100) conFrame++;
     if(local >= 0x160000 && local < 0x1a0000) { nRd++; if(local >= 0x190000) nRoadCtl++; v = (u16)shb_sub_read(local - 0x100000); return true; }
+    if(local >= 0x1b0000 && local < 0x1b8000) { v = (u16)shb_wram_read(local - 0x1b0000); return true; }   //(kit 7: the main CPU's work RAM)
     if((local & ~0xffu) == 0x1a0000) {
       u32 r = local & 0xff;
       if(r == 0x00) v = 0x5348;
       else if(r == 0x02) v = frames;
       else if(r == 0x04) v = (u16)front;
-      else if(r == 0x06) { v = subReset ? 1 : 0; subReset = false; }
+      else if(r == 0x06) { v = (subReset ? 1 : 0) | (shb_display_enable() ? 0 : 2); subReset = false; }   //(bit 1: the attract mode, kit 7)
       else if(r == 0x08) v = (u16)line;
       else if(r == 0x0a) v = (u16)shb_sub_irq4();
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
       else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); if(c >= 0) sndPush++; }   //(the next sound command: MD+)
-      else if(r == 0x16) v = 0x0106;
+      else if(r == 0x16) v = 0x0107;
       else if(r == 0x48) { int e = shb_take_latch(); if(e < 0) v = 0; else { v = (u16)(0x8000 | (e & 0x3ff)); lqLast = (u16)((e >> 16) & 0xfff); }   //(the latch FIFO: docs/12)
         static FILE* lql = nullptr; static int lqo = -1;   //ARES_SHFX_LQLOG=file: each entry taken "e delta", "-" when empty (a tick's end)
         if(lqo < 0) { const char* p = getenv("ARES_SHFX_LQLOG"); lqo = p ? 1 : 0; if(p) lql = fopen(p, "w"); }
@@ -181,7 +184,7 @@ struct ShFx {
         static const u16 fake[7] = {7, 121, 123, 30, 29000, 0x20f8, 0x560f};   //(copy, drawing, writer lines; misses,
         v = fake[(r - 0x24) >> 1];                                             // accesses, memory, busy: kit 5 in the bench)
       }
-      else if(r == 0x18) v = 1;   //(the core runs: the model needs no key)
+      else if(r == 0x18) v = keyed ? 1 : 0;   //(1: the core runs, after the key)
       else if(r >= 0x40 && r < 0x48) { lock = (r - 0x40) >> 1; v = (u16)lock; nLock++; }
       else v = 0;
       return true;
@@ -202,12 +205,19 @@ struct ShFx {
       shb_sub_write(local - 0x100000, data, (upper ? 0xff00 : 0) | (lower ? 0x00ff : 0));
       return true;
     }
+    if(local >= 0x1b0000 && local < 0x1b8000) { shb_wram_write(local - 0x1b0000, data, (upper ? 0xff00 : 0) | (lower ? 0x00ff : 0)); return true; }
     if((local & ~0xffu) == 0x1a0000) {
       u32 r = local & 0xff; nReg++;
+      if(!keyed) {                          //the key: 'SH' to 0x18, 'ON' to 0x1A (not the DIP switches then)
+        if(r == 0x18) { keyHi = data == 0x5348; return true; }
+        if(r == 0x1a && keyHi && data == 0x4f4e) { keyed = true; return true; }
+      }
       if(r == 0x12) nVbl++;
       if(r == 0x10) pad = data;
       if(r == 0x1a) dsw = data & 0xff;
       if(r == 0x1c) steerStep = (data & 15) ? (data & 15) : 1;
+      if(r == 0x1e) coin = data & 0xff;     //(kit 7: the coin switches)
+      if(r == 0x20) shb_pause(data & 1);    //(kit 7: the main CPU stopped)
       if(r == 0x12) {   //the Genesis' vblank: the arcade's line 223 from here (the two frames kept together)
         syncLine = (u16)line;
         if(line < 223) { while(line < 223) step(); }   //(behind: the lines run now)

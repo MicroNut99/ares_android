@@ -102,10 +102,10 @@ static int road_control;
 static int adc_select;
 static int display_enable;
 static u16 latched_page[4], latched_ys[4], latched_xs[4];
-static u8  in_service = 0xff, in_unknown = 0xff, in_coinage = 0xff, in_dsw = 0xfe;
+static u8  in_service = 0xff, in_unknown = 0xff, in_coinage = 0xff, in_dsw = 0xfe;   // (SH_COIN=<hex>: the coin switches)
 static u8  adc[4] = { 0x80, 0x00, 0x00, 0x00 };
 static int cur_cpu;                  // 0 main, 1 sub
-static int sub_reset_pending, main_halted;
+static int sub_reset_pending, main_halted, main_paused;   // (main_paused: the options menu stops the main CPU, kit 7)
 static bool log_io, snd_log;
 static int cur_line;                  // the line being run (run_line)
 static long frame_no;
@@ -474,7 +474,7 @@ static void run_cpu(int c, double cycles) {
     if (c == 1 && sub_reset_pending) { sub_vec_fetch = 2; m68k_pulse_reset(); sub_vec_fetch = 0; sub_reset_pending = 0; }
     m68k_set_irq(c == 0 ? main_level() : (sub_irq4 ? 4 : 0));
     debt[c] += cycles;
-    if (c == 0 && main_halted) debt[c] = 0;
+    if (c == 0 && (main_halted || main_paused)) debt[c] = 0;
     else if (debt[c] > 0) { int r = m68k_execute((int)ceil(debt[c])); debt[c] -= r; if (c == 0) main_done += r; }
     if (busy_log) {     // the slices each CPU ends outside its wait for the vblank flag (0x60400): main 0x149c-0x14a3, sub 0x10ca-0x10d1
         u32 pc = m68k_get_reg(nullptr, M68K_REG_PC);
@@ -492,13 +492,13 @@ static long picture_count;
 static std::vector<int16_t> audio; static double z80_debt; static bool audio_on, sound_ready;
 static void run_sound(double main_cycles) {
     if (sndc_on) {                           // a tick every 8 ms of the main CPU's time (80,000 cycles)
-        static double acc; static FILE* f; static int32_t buf[250];
+        static double acc; static FILE* f; static int32_t buf[500];
         if (!f) { f = fopen(getenv("SH_SNDC"), "wb"); static const char h[44] = {0}; fwrite(h, 1, 44, f); }
         acc += main_cycles;
         while (acc >= 80000) {
             acc -= 80000; snd_tick(buf, 250, 1); lq_log(-1);
             static long nt; if (getenv("SH_SNDDBG") && ++nt % 375 == 0) snd_debug();
-            for (int i = 0; i < 250; i++) { int v = buf[i] / 2; int16_t o = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); fwrite(&o, 2, 1, f); }
+            for (int i = 0; i < 250; i++) { int v = (buf[2 * i] + buf[2 * i + 1]) / 2; int16_t o = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); fwrite(&o, 2, 1, f); }
             fflush(f);
         }
     }
@@ -1072,6 +1072,7 @@ int main(int argc, char** argv) {
     std::string out = argv[3];
     out_dir = out;
     if (argc > 4) parse_events(argv[4]);
+    if (getenv("SH_COIN")) in_coinage = (u8)strtol(getenv("SH_COIN"), nullptr, 16);
     video_init();
     sh_sound_init(soundrom, pcmrom); sound_ready = true;
     static u8 pcm128[0x20000]; for (int i = 0; i < 4; i++) memcpy(pcm128 + 0x8000 * i, pcmrom + 0x10000 * i, 0x8000);
@@ -1095,6 +1096,12 @@ int main(int argc, char** argv) {
     if (!getenv("SH_NOPRELUDE")) for (int line = 224; line < 262; line++) run_line(line);
     prelude = false;
     for (frame_no = 0; frame_no < frames; frame_no++) {
+        { static const bool al = getenv("SH_ATTRLOG") != nullptr;   // the attract mode's flags (docs/04: 0x60050, 0x60408, 0x66052)
+          if (al) printf("ATTR f%ld %04x %04x %04x de %d\n", frame_no, workram[0x28], workram[0x204], workram[0x3029], display_enable);
+          static const char* wd = getenv("SH_WRAMDUMP");    // SH_WRAMDUMP=<prefix>,<every>: the main CPU's work RAM (big-endian words)
+          if (wd) { static long every = atol(strchr(wd, ',') ? strchr(wd, ',') + 1 : "600"); if (frame_no % every == 0) {
+              char n[512]; snprintf(n, sizeof n, "%.*s%05ld.bin", (int)(strchr(wd, ',') ? strchr(wd, ',') - wd : strlen(wd)), wd, frame_no);
+              FILE* f = fopen(n, "wb"); for (int i = 0; i < 0x4000; i++) { u8 b[2] = { (u8)(workram[i] >> 8), (u8)workram[i] }; fwrite(b, 1, 2, f); } fclose(f); } } }
         bool shot = false, wdump = false;
         spr_dump = false; vid_dump = false;
         for (auto& e : evs) {
@@ -1188,12 +1195,18 @@ extern "C" int shb_init(const shb_roms* r) {
     return 0;
 }
 extern "C" void shb_line(int line, const shb_inputs* in) {
-    if (in) { in_unknown = in->unknown; in_dsw = in->dsw; for (int i = 0; i < 4; i++) adc[i] = in->adc[i]; }
+    if (in) { in_unknown = in->unknown; in_dsw = in->dsw; in_coinage = in->coinage; for (int i = 0; i < 4; i++) adc[i] = in->adc[i]; }
     run_line(line);
     if (line == 261) frame_no++;
 }
 extern "C" long shb_pictures() { return picture_count; }
 extern "C" int shb_sub_irq4() { return sub_irq4; }
+extern "C" int shb_display_enable() { return display_enable; }
+extern "C" void shb_pause(int on) { main_paused = on; }          // (kit 7) the main CPU stopped where it is
+extern "C" unsigned shb_wram_read(unsigned off) { return workram[(off >> 1) & 0x3fff]; }   // (kit 7) 0x1B0000-0x1B7FFF
+extern "C" void shb_wram_write(unsigned off, unsigned d, unsigned mask) {
+    u16& w = workram[(off >> 1) & 0x3fff]; w = (u16)((w & ~mask) | (d & mask));
+}   // I/O 0x0000 bit 5: 0 in the attract mode (the sound muted, docs/13)
 extern "C" int shb_take_sub_reset() { int r = sub_reset_pending; sub_reset_pending = 0; return r; }
 // the sub's world as the console reaches it: an offset in 0x60000-0x9FFFF (its RAM, the road RAM, the road control)
 extern "C" unsigned shb_sub_read(unsigned off) {

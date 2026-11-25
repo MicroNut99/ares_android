@@ -185,7 +185,7 @@ void snd_tick(int32_t *out, int n, int step)
     /* the voices (MAME segapcm.cpp voice_t::tick): an output sample every step chip samples (the address moves step
        times as far; the samples between are not read - the 32X makes 15,625 a second, docs/12). Each voice in runs
        that cannot reach its end: the end looked at between runs only. */
-    for (int i = 0; i < n; i++) out[i] = 0;
+    for (int i = 0; i < 2 * n; i++) out[i] = 0;
     int act = 0;
     for (int ch = 0; ch < 16; ch++) {
         uint8_t *r = pr + 8 * ch;
@@ -195,7 +195,7 @@ void snd_tick(int32_t *out, int n, int step)
         uint32_t addr = (uint32_t)r[0x85] << 16 | (uint32_t)r[0x84] << 8 | low[ch];
         const uint32_t loop = (uint32_t)r[0x05] << 16 | (uint32_t)r[0x04] << 8;
         const uint32_t endp = (uint8_t)(r[0x06] + 1);
-        const int32_t vol = (r[2] & 0x7f) + (r[3] & 0x7f);
+        const int32_t lv = r[2] & 0x7f, rv = r[3] & 0x7f;
         const uint32_t inc = (uint32_t)r[7] * step;
         int32_t *o = out;
         int left = n;
@@ -210,9 +210,12 @@ void snd_tick(int32_t *out, int n, int step)
             const uint32_t lim = (pg < endp ? endp << 16 : 0x1000000u) - addr;
             int cnt = pg == endp ? 1 : inc ? (int)((lim + inc - 1) / inc) : left;
             if (cnt > left) cnt = left;
-            if (vol) for (int i = 0; i < cnt; i++) { o[i] += ((int32_t)rom[(addr >> 8) & 0x7fff] - 0x80) * vol; addr += inc; }
+            if (lv | rv) for (int i = 0; i < cnt; i++) {
+                const int32_t v = (int32_t)rom[(addr >> 8) & 0x7fff] - 0x80;
+                o[2 * i] += v * lv; o[2 * i + 1] += v * rv; addr += inc;
+            }
             else addr += inc * (uint32_t)cnt;
-            addr &= 0xffffff; o += cnt; left -= cnt;
+            addr &= 0xffffff; o += 2 * cnt; left -= cnt;
         }
         r[0x84] = (uint8_t)(addr >> 8); r[0x85] = (uint8_t)(addr >> 16);
         low[ch] = (r[0x86] & 1) ? 0 : (uint8_t)addr;
