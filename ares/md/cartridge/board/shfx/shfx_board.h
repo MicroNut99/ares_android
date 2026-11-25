@@ -18,6 +18,11 @@
 //  (registers also: + 0x0C pictures not shown, + 0x0E the last picture's runs, + 0x14 the next sound command (bit 15
 //  while there was one: a packet's first byte, sh_core.sv), + 0x16 the core's version 0x0101,
 //  + 0x18 / 0x1A (write) the key 'SH' 'ON' that starts the core (map_shfx.sv), + 0x18 (read) 1 once it runs)
+//Kit 5 (version 0x0105, docs/10): the diagnostics at + 0x1A-0x3E (sh_core.sv): the model gives what it knows - the
+//sound commands queued, the pictures not shown, the frames, the console's accesses a frame, the line of the Genesis'
+//vblank - and 0 for the timings it has no clock for (the copy, the drawing, the writer, the 68000's load, its memory);
+//SHFX_FAKEDIAG=1 gives those fixed values to see the screen's bars. + 0x1A / + 0x1C (write) the DIP switches, the
+//handlebar's speed (the options menu).
 //The arcade's ROMs: the cart's pack from bank 16 (tools/sh_pack.py): + 0 the main ROM, + 0x60000 the sub ROM (the
 //original: the main CPU reads it), + 0xC0000 the tiles, + 0xD8000 the road ROM, + 0x100000 the sprites.
 //SHFX_INPUT=<shangon_ref events> (coin:N, start:N, gas:N-M, brake:N-M, steer:N-M=VV) drives the inputs by frame instead
@@ -41,6 +46,7 @@ struct ShFx {
   std::vector<Ev> evs;
   std::vector<u8> roms;
   u32 nRd = 0, nWr = 0, nReg = 0, nVbl = 0, nRoadCtl = 0, nLock = 0, rleSum = 0, rleMax = 0, rleN = 0;   //(SHFX_TRACE: a line a second)
+  u16 dsw = 0xfe, steerStep = 8, sndPush = 0, frameCount = 0, conFrame = 0, conLast = 0, syncLine = 0;
 
   auto start(const std::vector<u8>& pack) -> void {
     roms = pack;
@@ -67,7 +73,7 @@ struct ShFx {
   }
 
   auto inputs() -> shb_inputs {
-    shb_inputs in{0xff, 0xfe, {0x80, 0, 0, 0}};
+    shb_inputs in{0xff, (u8)dsw, {0x80, 0, 0, 0}};
     if(!evs.empty()) {
       for(auto& e : evs) {
         if(e.k == "coin" && frame >= e.a && frame < e.a + 6) in.unknown &= ~0x01;
@@ -83,6 +89,7 @@ struct ShFx {
     if(pad & 0x20) in.unknown &= ~0x01;
     if(pad & 0x10) in.adc[1] = 0xff;
     if(pad & 0x40) in.adc[2] = 0xff;
+    if(pad & 0x0700) in.unknown &= ~0x20;   //(X, Y or Z: the Supercharger)
     in.adc[0] = steer;
     return in;
   }
@@ -126,6 +133,7 @@ struct ShFx {
     shb_line(line, &in);
     if(shb_take_sub_reset()) subReset = true;
     if(shb_pictures() != before) picture();
+    if(line == 223) { frameCount++; conLast = conFrame; conFrame = 0; }
     if(++line == 262) {
       line = 0; frame++;
       if(getenv("SHFX_TRACE") && frame % 60 == 0) {
@@ -133,13 +141,15 @@ struct ShFx {
                 frame, nRd, nWr, nRoadCtl, nReg, nVbl, frames, nLock, rleN ? rleSum / rleN : 0, rleMax);
         nRd = nWr = nReg = nVbl = nRoadCtl = nLock = rleSum = rleN = rleMax = 0;
       }
-      if(pad & 0x04) steer = max(0x20, steer - 8); else if(pad & 0x08) steer = min(0xe0, steer + 8);
-      else steer = steer < 0x80 ? min(0x80, steer + 8) : max(0x80, steer - 8);
+      const int k = steerStep;
+      if(pad & 0x04) steer = max(0x20, steer - k); else if(pad & 0x08) steer = min(0xe0, steer + k);
+      else steer = steer < 0x80 ? min(0x80, steer + k) : max(0x80, steer - k);
     }
   }
 
   auto read(u32 local, u16& v) -> bool {
     if(!on) return false;
+    if(local >= 0x160000 && local < 0x1a0100) conFrame++;
     if(local >= 0x160000 && local < 0x1a0000) { nRd++; if(local >= 0x190000) nRoadCtl++; v = (u16)shb_sub_read(local - 0x100000); return true; }
     if((local & ~0xffu) == 0x1a0000) {
       u32 r = local & 0xff;
@@ -151,8 +161,17 @@ struct ShFx {
       else if(r == 0x0a) v = (u16)shb_sub_irq4();
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
-      else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); }   //(the next sound command: MD+)
-      else if(r == 0x16) v = 0x0101;
+      else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); if(c >= 0) sndPush++; }   //(the next sound command: MD+)
+      else if(r == 0x16) v = 0x0105;
+      else if(r == 0x1e) v = sndPush & 0xff;
+      else if(r == 0x22) v = dropped;
+      else if(r == 0x32) v = conLast;
+      else if(r == 0x3a) v = syncLine;
+      else if(r == 0x3e) v = (u16)frame;
+      else if(r >= 0x24 && r <= 0x30 && getenv("SHFX_FAKEDIAG")) {
+        static const u16 fake[7] = {7, 121, 123, 30, 29000, 0x20f8, 0x560f};   //(copy, drawing, writer lines; misses,
+        v = fake[(r - 0x24) >> 1];                                             // accesses, memory, busy: kit 5 in the bench)
+      }
       else if(r == 0x18) v = 1;   //(the core runs: the model needs no key)
       else if(r >= 0x40 && r < 0x48) { lock = (r - 0x40) >> 1; v = (u16)lock; nLock++; }
       else v = 0;
@@ -168,6 +187,7 @@ struct ShFx {
 
   auto write(u32 local, bool upper, bool lower, u16 data) -> bool {
     if(!on) return false;
+    if(local >= 0x160000 && local < 0x1a0100) conFrame++;
     if(local >= 0x160000 && local < 0x1a0000) {
       nWr++;
       shb_sub_write(local - 0x100000, data, (upper ? 0xff00 : 0) | (lower ? 0x00ff : 0));
@@ -177,7 +197,10 @@ struct ShFx {
       u32 r = local & 0xff; nReg++;
       if(r == 0x12) nVbl++;
       if(r == 0x10) pad = data;
+      if(r == 0x1a) dsw = data & 0xff;
+      if(r == 0x1c) steerStep = (data & 15) ? (data & 15) : 1;
       if(r == 0x12) {   //the Genesis' vblank: the arcade's line 223 from here (the two frames kept together)
+        syncLine = (u16)line;
         if(line < 223) { while(line < 223) step(); }   //(behind: the lines run now)
         else if(line > 223) line = 223;                 //(ahead: those lines again - the main CPU gets their time twice)
       }

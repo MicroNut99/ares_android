@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include "sh_sound.h"
 
 extern "C" {
 #include "m68k.h"
@@ -42,6 +43,7 @@ static u8  gfx1[0x18000];
 static u16 sprrom[0x80000];          // ROM_REGION16_BE "sprites", 1 MB
 static u8  roadrom[0x10000];         // "segaic16road", 0x8000 loaded, the rest 0
 static u8  soundrom[0x10000];
+static u8  pcmrom[0x40000];           // the SegaPCM's samples (host/sh_sound.cpp)
 
 static bool load(const std::string& dir, const char* name, u8* dst, size_t len, int step = 1) {
     std::string p = dir + "/" + name;
@@ -78,6 +80,9 @@ static bool load_roms(const std::string& d) {
     for (int i = 0; i < 0x80000; i++) sprrom[i] = (spr[2 * i] << 8) | spr[2 * i + 1];
     ok &= load(d, "epr-10642.47", roadrom, 0x8000);
     ok &= load(d, "epr-10649c.88", soundrom, 0x8000);
+    // the SegaPCM's samples (MAME's "pcm" region: each 32 KB ROM at a 64 KB step, twice)
+    const char* pn[4] = { "epr-10643.66", "epr-10644.67", "epr-10645.68", "epr-10646.69" };
+    for (int i = 0; i < 4; i++) { ok &= load(d, pn[i], pcmrom + 0x10000 * i, 0x8000); memcpy(pcmrom + 0x10000 * i + 0x8000, pcmrom + 0x10000 * i, 0x8000); }
     return ok;
 }
 
@@ -213,7 +218,7 @@ static void mapper_write(u32 offset, u8 data) {   // MAME: sega_315_5195_mapper_
                 if (main_halted) m68k_end_timeslice();
             }
             break;
-        case 0x03: to_sound = data; sound_cmd(data); if (snd_log) printf("SND f%ld %02x pc %06x line %d cyc %d\n", frame_no, data, m68k_get_reg(nullptr, M68K_REG_PPC), cur_line, m68k_cycles_run()); break;
+        case 0x03: to_sound = data; sound_cmd(data); sh_sound_latch(data, (long)(m68k_cycles_run() * 0.4)); if (snd_log) printf("SND f%ld %02x pc %06x line %d cyc %d\n", frame_no, data, m68k_get_reg(nullptr, M68K_REG_PPC), cur_line, m68k_cycles_run()); break;
         case 0x04:
             if ((data & 7) != 7) { hold_irq = ~data & 7; main_set_irq(); }
             break;
@@ -263,7 +268,8 @@ static void misc_io_w(u32 off, u16 d, u16 mask) {
                 display_enable = (d >> 5) & 1;
             }
             return;
-        case 0x0020 / 2: return;          // D0: sound reset (no sound CPU yet)
+        case 0x0020 / 2: { static const bool rl = getenv("SH_RSTLOG") != nullptr; if (rl) printf("RST %04x %.9f f%ld line %d\n", d, now_cycles() / 1e7, frame_no, cur_line); }
+            if (mask & 0x00ff) sh_sound_reset(!(d & 1), (long)(m68k_cycles_run() * 0.4)); return;   // D0: 0 holds the sound board in reset
         case 0x3000 / 2: return;          // watchdog
         case 0x3020 / 2: return;          // ADC start
     }
@@ -301,7 +307,7 @@ static void main_write16(u32 a, u16 d, u16 mask) {
         }
         case K_ROM: case K_SUBROM: return;
         case K_ROADCTL: road_control_w(d, mask); return;
-        case K_MISCIO: misc_io_w(off, d, mask); return;
+        case K_MISCIO: { static const bool rl = getenv("SH_RSTLOG") != nullptr; if (rl && ((off >> 1) & 0x181f) == 0x10) printf("IOW %06x\n", a); } misc_io_w(off, d, mask); return;
     }
 }
 
@@ -458,13 +464,26 @@ static void run_cpu(int c, double cycles) {
 
 static bool external_sub;              // the library (sh_board.h): the sub CPU is outside (the Genesis' 68000)
 static long picture_count;
+// the sound board (host/sh_sound.cpp): its Z80 at 4 MHz beside the 10 MHz 68000s, a slice at a time; its SegaPCM's
+// samples kept for SH_WAV=<file> (31,250 Hz stereo, the voices' sum clipped: MAME's -wavwrite of the PCM alone, measured)
+static std::vector<int16_t> audio; static double z80_debt; static bool audio_on, sound_ready;
+static void run_sound(double main_cycles) {
+    if (!sound_ready) return;
+    z80_debt += main_cycles * 0.4;
+    long c = (long)z80_debt; if (c <= 0) return;
+    z80_debt -= c;
+    static int16_t buf[2 * 4096];
+    int n = sh_sound_run(c, buf, 4096);
+    if (audio_on) for (int i = 0; i < 2 * n; i++) audio.push_back(buf[i]);
+}
 static void run_both(double cycles) {
-    if (external_sub) { run_cpu(0, cycles); return; }
+    if (external_sub) { run_cpu(0, cycles); run_sound(cycles); return; }
     static const double chunk = getenv("SH_CHUNK") ? atof(getenv("SH_CHUNK")) : 160;  // MAME: 1/6000 s
     while (cycles > 0) {
         double c = std::min(chunk, cycles);
         run_cpu(0, c);
         run_cpu(1, c);
+        run_sound(c);
         cycles -= c;
     }
 }
@@ -827,7 +846,8 @@ static uint64_t state_hash() {
     h = fnv(h, roadbuf, 0x800); h = fnv(h, spriteram, 0x800, 1); h = fnv(h, cpu1ram, 0x4000);
     return h;
 }
-static double now_cycles() { return ((double)frame_no * 262 + cur_line) * CYC_LINE + m68k_cycles_run(); }
+static bool prelude;
+static double now_cycles() { return (prelude ? cur_line - 224.0 : 38.0 + (double)frame_no * 262 + cur_line) * CYC_LINE + m68k_cycles_run(); }
 static bool partials_on = true;
 // SH_SCAN=1 (docs/10): each line drawn at its own start, its colours taken then - as the arcade's hardware (and the
 // FPGA) make a line while it is shown - instead of MAME's whole picture at line 224 with its partial updates
@@ -846,6 +866,10 @@ static void pic_hash_print() {
     }
     printf("Q f%ld %016llx\n", frame_no, (unsigned long long)q);
 }
+// MAME's screen starts at the start of vblank (time 0 is line 224: screen_device's first vblank_start_time is 0), and
+// the CPUs with it: the run starts with lines 224-261 (the prelude, no picture and no frame end), then frame 0's
+// 262 lines end at its line 224 as MAME's frame_done does. (The board's start in time only matters to the sound
+// board: its Z80 runs free of the main's vblank waits; docs/04.)
 static void run_line(int line) {
     cur_line = line;
     if (line == 0) last_partial = 0;
@@ -857,6 +881,8 @@ static void run_line(int line) {
     if (line == 223) { vblank_state = 1; sub_irq4 = 1; }
     if (line == 224) {
         vblank_state = 0; sub_irq4 = 0;
+    }
+    if (line == 224 && !prelude) {
         if (hash_log) {
             const uint64_t o = 0xcbf29ce484222325ULL;
             printf("H f%ld %016llx  %08x %08x %08x %08x %08x %08x\n", frame_no, (unsigned long long)state_hash(),
@@ -869,6 +895,8 @@ static void run_line(int line) {
             take_rgb();
         }
         pic_hash_print();
+        static const bool vst = getenv("SH_VSTATE") != nullptr;
+        if (vst && frame_no % 62 == 0) { printf("V %ld", frame_no); for (int n = 0; n < 16; n++) printf(" %02x/%02x/%02x", sh_sound_peek(0xf086 + 8 * n), sh_sound_peek(0xf002 + 8 * n), sh_sound_peek(0xf085 + 8 * n)); printf("\n"); }
         picture_count++;
         apply_inputs(frame_no + 1);
         static const long sd = getenv("SH_SPRDUMP") ? atol(getenv("SH_SPRDUMP")) : -1;   // sprite RAM after drawing
@@ -904,6 +932,8 @@ static void parse_events(const char* s) {
         if (e.k == "log") log_io = true;
         else if (e.k == "stats") stats = true;
         else if (e.k == "snd") snd_log = true;
+        else if (e.k == "latchlog") sh_sound_latch_log = [](uint8_t d) { printf("L f%ld %02x\n", frame_no, d); };
+        else if (e.k == "pcmlog") sh_sound_pcm_log = [](uint8_t r, uint8_t d) { printf("P f%ld %02x %02x\n", frame_no, r, d); };
         else if (e.k == "busy") busy_log = true;
         else if (e.k == "hash") hash_log = true;
         else if (e.k == "cover") { cover[0] = (u8*)calloc(1, 0x100000); cover[1] = (u8*)calloc(1, 0x100000); }
@@ -1003,6 +1033,7 @@ int main(int argc, char** argv) {
     out_dir = out;
     if (argc > 4) parse_events(argv[4]);
     video_init();
+    sh_sound_init(soundrom, pcmrom); sound_ready = true; audio_on = getenv("SH_WAV") != nullptr;
 
     m68k_init();
     for (int c = 0; c < 2; c++) {
@@ -1018,6 +1049,9 @@ int main(int argc, char** argv) {
     }
 
     apply_inputs(0);
+    frame_no = 0; prelude = true;
+    if (!getenv("SH_NOPRELUDE")) for (int line = 224; line < 262; line++) run_line(line);
+    prelude = false;
     for (frame_no = 0; frame_no < frames; frame_no++) {
         bool shot = false, wdump = false;
         spr_dump = false; vid_dump = false;
@@ -1063,6 +1097,16 @@ int main(int argc, char** argv) {
     }
     for (int c = 0; c < 2; c++) if (cover[c]) {
         FILE* f = fopen((out_dir + "/cover" + std::to_string(c) + ".bin").c_str(), "wb"); fwrite(cover[c], 1, 0x100000, f); fclose(f);
+    }
+    if (audio_on && !audio.empty()) {          // SH_WAV: the SegaPCM's sound at MAME's -wavwrite level, 31,250 Hz stereo
+        FILE* f = fopen(getenv("SH_WAV"), "wb");
+        uint32_t n = audio.size() * 2, rate = 31250, br = rate * 4;
+        fwrite("RIFF", 1, 4, f); uint32_t sz = 36 + n; fwrite(&sz, 4, 1, f); fwrite("WAVEfmt ", 1, 8, f);
+        uint32_t fl = 16; uint16_t fmt = 1, ch = 2, ba = 4, bits = 16;
+        fwrite(&fl, 4, 1, f); fwrite(&fmt, 2, 1, f); fwrite(&ch, 2, 1, f); fwrite(&rate, 4, 1, f); fwrite(&br, 4, 1, f);
+        fwrite(&ba, 2, 1, f); fwrite(&bits, 2, 1, f); fwrite("data", 1, 4, f); fwrite(&n, 4, 1, f);
+        for (int16_t v : audio) fwrite(&v, 2, 1, f);
+        fclose(f);
     }
     if (getenv("SH_ROMHIST")) {
         FILE* f = fopen(getenv("SH_ROMHIST"), "w");
