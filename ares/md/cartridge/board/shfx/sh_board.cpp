@@ -15,6 +15,7 @@
 //     events, comma-separated:  shot:N  (a PPM of frame N; shot:N-M/S every S frames)  coin:N  start:N
 //                               gas:N-M  brake:N-M  steer:N-M=VV  (VV hex, 0x80 centre)  dsw:XX  log  stats  nopartial
 //                               vdump:N-M/S  (vNNNNN.bin: the video's memories before the draw + MAME's bitmap)
+//                               wdump:N-M/S  (wNNNNN.bin: the palette at line 224, MAME's bitmap, the picture's colours)
 //                               sprdump:N-M/S  (sNNNNN.bin: sprite RAM before the draw + the 224x320 sprite buffer)
 //   Writes <outdir>/fNNNNN.ppm (320x224) and prints a line a second of emulated time.
 
@@ -98,6 +99,7 @@ static u8  adc[4] = { 0x80, 0x00, 0x00, 0x00 };
 static int cur_cpu;                  // 0 main, 1 sub
 static int sub_reset_pending, main_halted;
 static bool log_io, snd_log;
+static int cur_line;                  // the line being run (run_line)
 static long frame_no;
 
 // ------------------------------------------------------------------------------------------------ the mapper
@@ -188,6 +190,16 @@ static u8 mapper_read(u32 offset) {     // MAME: sega_315_5195_mapper_device::re
     return open_bus_r() & 0xff;
 }
 
+// the sound commands (docs/04): the game sends 8-byte packets through the latch, bytes <= 80 us apart, packets >= 16 ms;
+// a packet's first byte (the first after 0.5 ms of quiet) is its command, 0x80 none - the core keeps them for the
+// Genesis' 68000 (MD+): sh_core.sv's register 0x14, shb_take_sound here
+static double now_cycles();
+static std::vector<int> snd_q; static double snd_last_t = -1e9;
+static void sound_cmd(u8 d) {
+    double t = now_cycles();
+    if (t - snd_last_t > 5000 && d != 0x80 && d != 0x00 && snd_q.size() < 8) snd_q.push_back(d);
+    snd_last_t = t;
+}
 static void mapper_write(u32 offset, u8 data) {   // MAME: sega_315_5195_mapper_device::write
     offset &= 0x1f;
     u8 oldval = mregs[offset];
@@ -201,7 +213,7 @@ static void mapper_write(u32 offset, u8 data) {   // MAME: sega_315_5195_mapper_
                 if (main_halted) m68k_end_timeslice();
             }
             break;
-        case 0x03: to_sound = data; if (snd_log) printf("SND f%ld %02x pc %06x\n", frame_no, data, m68k_get_reg(nullptr, M68K_REG_PPC)); break;
+        case 0x03: to_sound = data; sound_cmd(data); if (snd_log) printf("SND f%ld %02x pc %06x line %d cyc %d\n", frame_no, data, m68k_get_reg(nullptr, M68K_REG_PPC), cur_line, m68k_cycles_run()); break;
         case 0x04:
             if ((data & 7) != 7) { hold_irq = ~data & 7; main_set_irq(); }
             break;
@@ -258,6 +270,8 @@ static void misc_io_w(u32 off, u16 d, u16 mask) {
     if (log_io) fprintf(stderr, "f%ld misc_io_w %04x = %04x & %04x\n", frame_no, off * 2, d, mask);
 }
 
+// SH_ROMHIST=<file>: the main CPU's ROM reads a 1 KB block, over the whole run (docs/10: what goes in which memory)
+static long romhist[0x180];
 static u16 main_read16(u32 a) {
     a &= 0xfffffe;
     u32 off;
@@ -265,7 +279,7 @@ static u16 main_read16(u32 a) {
     if (!e) return 0xff00 | mapper_read(a >> 1);
     switch (e->kind) {
         case K_RAM:    if (shared_log && e->ram == cpu1ram) shared_note(0, (off >> 1) % e->words); return e->ram[(off >> 1) % e->words];
-        case K_ROM:    return (rom_main[off] << 8) | rom_main[off + 1];
+        case K_ROM:    romhist[(off >> 10) % 0x180]++; return (rom_main[off] << 8) | rom_main[off + 1];
         case K_SUBROM: return off < 0x60000 ? (rom_sub[off] << 8) | rom_sub[off + 1] : 0xffff;
         case K_ROADCTL: return road_control_r();
         case K_MISCIO: return misc_io_r(off);
@@ -730,8 +744,18 @@ static void pen_rgb(u16 idx, u8* rgb) {
 
 // the colours are taken when the picture is drawn (line 224), with the palette of that moment
 static u8 rgbframe[224][320][3];
+static long idx_frames, idx_max, idx_sum, idx_over;   // SH_IDXSTAT: distinct palette indexes a picture (docs/10)
+static u16 pal224[0x1000];            // the palette the colours were taken with (wdump)
 static void take_rgb() {
+    memcpy(pal224, paletteram, sizeof pal224);
     for (int y = 0; y < 224; y++) for (int x = 0; x < 320; x++) pen_rgb(bitmap[y][x], rgbframe[y][x]);
+    static const bool on = getenv("SH_IDXSTAT") != nullptr;
+    if (on) {
+        static u8 seen[0x2000]; memset(seen, 0, sizeof seen); long n = 0;
+        for (int y = 0; y < 224; y++) for (int x = 0; x < 320; x++) { u16 v = bitmap[y][x] & 0x1fff; if (!seen[v]) { seen[v] = 1; n++; } }
+        idx_frames++; idx_sum += n; idx_max = std::max(idx_max, n); if (n > 255) idx_over++;
+        if (idx_frames % 600 == 0) fprintf(stderr, "idx: %ld pictures, distinct indexes avg %ld max %ld, over 255: %ld\n", idx_frames, idx_sum / idx_frames, idx_max, idx_over);
+    }
 }
 static void write_ppm(const std::string& path) {
     FILE* f = fopen(path.c_str(), "wb");
@@ -748,7 +772,7 @@ static const double CYC_LINE = 10000000.0 * 400.0 / (25174800.0 / 4.0);
 // MAME: screen_device::update_partial / reset_partial_updates (at line 0). MAME draws the lines up to the beam
 // whenever the text RAM's scroll area (0xE80 up) is written or the display is switched (segaic16.cpp textram_w,
 // set_display_enable); the rest at the start of vblank (line 224). Each part redraws the sprites over its lines.
-static int cur_line, last_partial;
+static int last_partial;
 static bool spr_dump, vid_dump;                 // this frame: write sNNNNN.bin (event sprdump)
 static std::string out_dir;
 static long st_partials;
@@ -803,11 +827,32 @@ static uint64_t state_hash() {
     h = fnv(h, roadbuf, 0x800); h = fnv(h, spriteram, 0x800, 1); h = fnv(h, cpu1ram, 0x4000);
     return h;
 }
+static double now_cycles() { return ((double)frame_no * 262 + cur_line) * CYC_LINE + m68k_cycles_run(); }
 static bool partials_on = true;
-static void request_partial() { if (partials_on) update_partial(cur_line); }
+// SH_SCAN=1 (docs/10): each line drawn at its own start, its colours taken then - as the arcade's hardware (and the
+// FPGA) make a line while it is shown - instead of MAME's whole picture at line 224 with its partial updates
+static bool scan_mode;
+static void request_partial() { if (partials_on && !scan_mode) update_partial(cur_line); }
+static void pic_hash_print() {
+    static const bool on = getenv("SH_PICHASH") != nullptr;
+    if (!on) return;
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (int y = 0; y < 224; y++) for (int x = 0; x < 320; x++) for (int c = 0; c < 3; c++) h = (h ^ rgbframe[y][x][c]) * 0x100000001b3ULL;
+    printf("P f%ld %016llx\n", frame_no, (unsigned long long)h);
+    uint64_t q = 0xcbf29ce484222325ULL;   // the 32X's colours (5 bits a channel: fpga/shfx/sim tb_core's hash)
+    for (int y = 0; y < 224; y++) for (int x = 0; x < 320; x++) {
+        u16 c = (rgbframe[y][x][0] >> 3) | ((rgbframe[y][x][1] >> 3) << 5) | ((rgbframe[y][x][2] >> 3) << 10);
+        q = (q ^ (c & 0xff)) * 0x100000001b3ULL; q = (q ^ (c >> 8)) * 0x100000001b3ULL;
+    }
+    printf("Q f%ld %016llx\n", frame_no, (unsigned long long)q);
+}
 static void run_line(int line) {
     cur_line = line;
     if (line == 0) last_partial = 0;
+    if (scan_mode && line < 224) {
+        gy0 = gy1 = line; screen_update();
+        for (int x = 0; x < 320; x++) pen_rgb(bitmap[line][x], rgbframe[line][x]);
+    }
     if (line == 66 || line == 130 || line == 194) irq2_state = 0;
     if (line == 223) { vblank_state = 1; sub_irq4 = 1; }
     if (line == 224) {
@@ -818,9 +863,12 @@ static void run_line(int line) {
                    (u32)fnv(o, tileram, 0x8000), (u32)fnv(o, textram, 0x800), (u32)fnv(o, paletteram, 0x1000),
                    (u32)fnv(o, roadbuf, 0x800), (u32)fnv(o, spriteram, 0x800, 1), (u32)fnv(o, cpu1ram, 0x4000));
         }
-        if (partials_on) update_partial(223);
-        else { gy0 = 0; gy1 = 223; screen_update(); }
-        take_rgb();
+        if (!scan_mode) {
+            if (partials_on) update_partial(223);
+            else { gy0 = 0; gy1 = 223; screen_update(); }
+            take_rgb();
+        }
+        pic_hash_print();
         picture_count++;
         apply_inputs(frame_no + 1);
         static const long sd = getenv("SH_SPRDUMP") ? atol(getenv("SH_SPRDUMP")) : -1;   // sprite RAM after drawing
@@ -887,6 +935,7 @@ int main(int argc, char** argv) {
     if (!load_roms(argv[1])) return 1;
     memcpy(rom_subcpu, rom_sub, sizeof rom_sub);
     shared_log = getenv("SH_SHARED") != nullptr;
+    scan_mode = getenv("SH_SCAN") != nullptr;
     if (getenv("SH_TRACEPC")) trace_pc = strtol(getenv("SH_TRACEPC"), nullptr, 16);
     if (getenv("SH_WLOG")) sub_wlog = fopen(getenv("SH_WLOG"), "w");
     if (getenv("SH_SUBRELOC")) {
@@ -924,6 +973,31 @@ int main(int argc, char** argv) {
         }
         return 0;
     }
+    if (argc >= 4 && std::string(argv[2]) == "render") {
+        // shangon_ref <romdir> render <file>...: what fpga/shfx/sim tb_core's TB_DUMP writes at line 224 (the core's
+        // latched scroll values, road control and display bit, then its tile, text, road buffer, sprite and palette RAMs)
+        // drawn as MAME draws the picture; prints `Q <file> <hash of its 32X colours>` (docs/10)
+        video_init();
+        for (int i = 3; i < argc; i++) {
+            FILE* f = fopen(argv[i], "rb"); if (!f) continue;
+            u16 regs[16];
+            bool ok = fread(regs, 2, 16, f) == 16 && fread(tileram, 2, 0x8000, f) == 0x8000 && fread(textram, 2, 0x800, f) == 0x800 &&
+                      fread(roadbuf, 2, 0x800, f) == 0x800 && fread(spriteram, 2, 0x800, f) == 0x800 && fread(paletteram, 2, 0x1000, f) == 0x1000;
+            fclose(f);
+            if (!ok) { printf("Q %s short\n", argv[i]); continue; }
+            for (int k = 0; k < 4; k++) { latched_page[k] = regs[k]; latched_ys[k] = regs[4 + k]; latched_xs[k] = regs[8 + k]; }
+            road_control = regs[12]; display_enable = regs[13] & 1;
+            gy0 = 0; gy1 = 223; screen_update(); take_rgb();
+            uint64_t q = 0xcbf29ce484222325ULL;
+            for (int y = 0; y < 224; y++) for (int x = 0; x < 320; x++) {
+                u16 c = (rgbframe[y][x][0] >> 3) | ((rgbframe[y][x][1] >> 3) << 5) | ((rgbframe[y][x][2] >> 3) << 10);
+                q = (q ^ (c & 0xff)) * 0x100000001b3ULL; q = (q ^ (c >> 8)) * 0x100000001b3ULL;
+            }
+            printf("Q %s %016llx\n", argv[i], (unsigned long long)q);
+            if (getenv("SH_RENDER_PPM")) write_ppm(std::string(argv[i]) + ".ppm");
+        }
+        return 0;
+    }
     long frames = atol(argv[2]);
     std::string out = argv[3];
     out_dir = out;
@@ -945,12 +1019,13 @@ int main(int argc, char** argv) {
 
     apply_inputs(0);
     for (frame_no = 0; frame_no < frames; frame_no++) {
-        bool shot = false;
+        bool shot = false, wdump = false;
         spr_dump = false; vid_dump = false;
         for (auto& e : evs) {
             if (e.k == "shot" && in_range(e, frame_no)) shot = true;
             if (e.k == "sprdump" && in_range(e, frame_no)) spr_dump = true;
             if (e.k == "vdump" && in_range(e, frame_no)) vid_dump = true;
+            if (e.k == "wdump" && in_range(e, frame_no)) wdump = true;
         }
         busy_n[0] = busy_n[1] = busy_b[0] = busy_b[1] = 0;
         subacc_on = getenv("SH_SUBACC") != nullptr; memset(subacc, 0, sizeof subacc);
@@ -963,6 +1038,11 @@ int main(int argc, char** argv) {
             printf("S f%ld spr %d pix %d words %d maxline words %d pix %d\n", frame_no, st_spr, st_pix, st_words, mw, mp);
         }
         if (shot) { char n[64]; snprintf(n, sizeof n, "/f%05ld.ppm", frame_no); write_ppm(out + n); }
+        if (wdump) {   // the picture writer's bench (fpga/shfx/sim tb_writer): the palette at line 224, MAME's bitmap, the colours
+            char n[64]; snprintf(n, sizeof n, "/w%05ld.bin", frame_no);
+            FILE* f = fopen((out + n).c_str(), "wb");
+            if (f) { fwrite(pal224, 2, 0x1000, f); fwrite(bitmap, 2, 224 * 320, f); fwrite(rgbframe, 1, sizeof rgbframe, f); fclose(f); }
+        }
         if (frame_no % 60 == 0) {
             cur_cpu = 0; m68k_set_context(ctx[0].data());
             u32 pc0 = m68k_get_reg(nullptr, M68K_REG_PC);
@@ -983,6 +1063,11 @@ int main(int argc, char** argv) {
     }
     for (int c = 0; c < 2; c++) if (cover[c]) {
         FILE* f = fopen((out_dir + "/cover" + std::to_string(c) + ".bin").c_str(), "wb"); fwrite(cover[c], 1, 0x100000, f); fclose(f);
+    }
+    if (getenv("SH_ROMHIST")) {
+        FILE* f = fopen(getenv("SH_ROMHIST"), "w");
+        for (int b = 0; b < 0x180; b++) if (romhist[b]) fprintf(f, "%05x %ld\n", b << 10, romhist[b]);
+        fclose(f);
     }
     if (pc_hist) {
         FILE* f = fopen((out_dir + "/pcprof.txt").c_str(), "w");
@@ -1040,6 +1125,10 @@ extern "C" void shb_sub_write(unsigned off, unsigned d, unsigned mask) {
 }
 // the last picture as the FPGA's writer makes it: a byte a pixel, the colours numbered in the order met (0 kept for
 // the 32X's black border), their BGR555 words; returns the number of colours (255 at most: past it, 255)
+extern "C" int shb_take_sound(void) {
+    if (snd_q.empty()) return -1;
+    int c = snd_q.front(); snd_q.erase(snd_q.begin()); return c;
+}
 extern "C" int shb_picture8(unsigned char* pix, unsigned short* pal) {
     int n = 1; std::vector<int> map(1 << 15, -1);
     pal[0] = 0;

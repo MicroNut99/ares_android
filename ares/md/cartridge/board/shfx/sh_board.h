@@ -22,6 +22,7 @@ int      shb_take_sub_reset(void);                    /* the main CPU's RESET si
 unsigned shb_sub_read(unsigned off);                  /* the sub's world, 0x60000-0x9FFFF */
 void     shb_sub_write(unsigned off, unsigned data, unsigned mask);
 int      shb_picture8(unsigned char* pix /* 320 x 224 */, unsigned short* pal /* 256 BGR555 */);
+int      shb_take_sound(void);                        /* the next sound command (a packet's first byte), -1 none */
 #ifdef __cplusplus
 }
 #endif
