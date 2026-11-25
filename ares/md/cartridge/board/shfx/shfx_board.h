@@ -48,7 +48,7 @@ struct ShFx {
   std::vector<Ev> evs;
   std::vector<u8> roms;
   u32 nRd = 0, nWr = 0, nReg = 0, nVbl = 0, nRoadCtl = 0, nLock = 0, rleSum = 0, rleMax = 0, rleN = 0;   //(SHFX_TRACE: a line a second)
-  u16 lqLast = 0;
+  u16 lqLast = 0, lqHold = 0; u8 lqSeq = 0;   //(kit 13: the entries numbered; the last one taken kept at 0x4C)
   bool keyed = false, keyHi = false;   //the key 'SH' 'ON' (0x18, 0x1A) starts the arcade, as map_shfx.sv (kit 7: the saved switches go in before it reads them)
   u16 dsw = 0xfe, coin = 0xff, steerStep = 8, sndPush = 0, frameCount = 0, conFrame = 0, conLast = 0, syncLine = 0;
 
@@ -168,13 +168,16 @@ struct ShFx {
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
       else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); if(c >= 0) sndPush++; }   //(the next sound command: MD+)
-      else if(r == 0x16) v = 0x0107;
-      else if(r == 0x48) { int e = shb_take_latch(); if(e < 0) v = 0; else { v = (u16)(0x8000 | (e & 0x3ff)); lqLast = (u16)((e >> 16) & 0xfff); }   //(the latch FIFO: docs/12)
+      else if(r == 0x16) v = 0x010d;   //(kit 13: 0x48 read without taking, taken by a write of its number)
+      else if(r == 0x48) { int e = shb_take_latch();   //(the latch FIFO: docs/12; kit 13: numbered, kept at 0x4C)
+        if(e < 0) v = (u16)(lqSeq << 11); else { v = (u16)(0x8000 | lqSeq << 11 | (e & 0x3ff)); lqLast = (u16)(lqSeq << 12 | ((e >> 16) & 0xfff)); lqSeq = (lqSeq + 1) & 15; }
+        lqHold = v;
         static FILE* lql = nullptr; static int lqo = -1;   //ARES_SHFX_LQLOG=file: each entry taken "e delta", "-" when empty (a tick's end)
         if(lqo < 0) { const char* p = getenv("ARES_SHFX_LQLOG"); lqo = p ? 1 : 0; if(p) lql = fopen(p, "w"); }
         if(lql) { if(e < 0) fputs("-\n", lql); else fprintf(lql, "%03x %u\n", e & 0x3ff, (e >> 16) & 0xfff); }
       }
       else if(r == 0x4a) v = lqLast;
+      else if(r == 0x4c) v = lqHold;
       else if(r == 0x1e) v = sndPush & 0xff;
       else if(r == 0x22) v = dropped;
       else if(r == 0x32) v = conLast;
