@@ -15,7 +15,8 @@
 //                     sh_writer.sv writes them: + 0 the runs (a word a run of 1-256 pixels: the length - 1, the colour)
 //                     or the plain picture (320 x 224 bytes), + 0x11800 the colours (BGR555, n at + 2n), + 0x11A00 the
 //                     picture's number, + 0x11A02 its colours, + 0x11A04 its runs (0: plain), + 0x11C00 the line table
-//  (registers also: + 0x0C pictures not shown, + 0x0E the last picture's runs, + 0x16 the core's version 0x0101)
+//  (registers also: + 0x0C pictures not shown, + 0x0E the last picture's runs, + 0x16 the core's version 0x0101,
+//  + 0x18 / 0x1A (write) the key 'SH' 'ON' that starts the core (map_shfx.sv), + 0x18 (read) 1 once it runs)
 //The arcade's ROMs: the cart's pack from bank 16 (tools/sh_pack.py): + 0 the main ROM, + 0x60000 the sub ROM (the
 //original: the main CPU reads it), + 0xC0000 the tiles, + 0xD8000 the road ROM, + 0x100000 the sprites.
 //SHFX_INPUT=<shangon_ref events> (coin:N, start:N, gas:N-M, brake:N-M, steer:N-M=VV) drives the inputs by frame instead
@@ -150,6 +151,7 @@ struct ShFx {
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
       else if(r == 0x16) v = 0x0101;
+      else if(r == 0x18) v = 1;   //(the core runs: the model needs no key)
       else if(r >= 0x40 && r < 0x48) { lock = (r - 0x40) >> 1; v = (u16)lock; nLock++; }
       else v = 0;
       return true;
