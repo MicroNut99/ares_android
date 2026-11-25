@@ -28,6 +28,9 @@
 #include <vector>
 #include <algorithm>
 #include "sh_sound.h"
+extern "C" {
+#include "snd.h"                       // (cart/src: the slave SH2's sound, compared here)
+}
 
 extern "C" {
 #include "m68k.h"
@@ -200,6 +203,23 @@ static u8 mapper_read(u32 offset) {     // MAME: sega_315_5195_mapper_device::re
 // Genesis' 68000 (MD+): sh_core.sv's register 0x14, shb_take_sound here
 static double now_cycles();
 static std::vector<int> snd_q; static double snd_last_t = -1e9;
+static std::vector<int> latch_bytes;     // every byte to the sound board and its resets (sh_core.sv's latch FIFO, register
+                                         // 0x48's bits 9-0) with its time after the one before (0x4A: 4 us, bits 27-16)
+static double latch_last_t = -1e12;
+static double main_done;                 // the main CPU's cycles run (whole slices)
+static int latch_entry(int v) {
+    double t = main_done + m68k_cycles_run(); double d = (t - latch_last_t) / 40.0; latch_last_t = t;
+    int dd = d >= 4095 ? 4095 : d < 0 ? 0 : (int)d;
+    return dd << 16 | v;
+}
+static bool sndc_on;
+static void lq_log(int e)                   // SH_LQLOG=<file>: snd.c's entries as ares' ARES_SHFX_LQLOG has them ("-": a tick)
+{
+    static FILE* f = nullptr; static int on = -1;
+    if (on < 0) { const char* p = getenv("SH_LQLOG"); on = p != nullptr; if (p) f = fopen(p, "w"); }
+    if (!f) return;
+    if (e < 0) fputs("-\n", f); else fprintf(f, "%03x %u\n", e & 0x3ff, (e >> 16) & 0xfff);
+}                     // SH_SNDC=<wav>: cart/src/snd.c (the slave SH2's sound) beside the reference
 static void sound_cmd(u8 d) {
     double t = now_cycles();
     if (t - snd_last_t > 5000 && d != 0x80 && d != 0x00 && snd_q.size() < 8) snd_q.push_back(d);
@@ -218,7 +238,9 @@ static void mapper_write(u32 offset, u8 data) {   // MAME: sega_315_5195_mapper_
                 if (main_halted) m68k_end_timeslice();
             }
             break;
-        case 0x03: to_sound = data; sound_cmd(data); sh_sound_latch(data, (long)(m68k_cycles_run() * 0.4)); if (snd_log) printf("SND f%ld %02x pc %06x line %d cyc %d\n", frame_no, data, m68k_get_reg(nullptr, M68K_REG_PPC), cur_line, m68k_cycles_run()); break;
+        case 0x03: { to_sound = data; sound_cmd(data); int e = latch_entry(data); latch_bytes.push_back(e); if (sndc_on) { snd_event(e & 0x3ff, e >> 16); lq_log(e); }
+            static const bool filt = getenv("SH_SNDFILT") != nullptr;   // (the comparison: the reference without the tunes too)
+            sh_sound_latch(filt && (e >> 16) >= 250 && snd_is_music(data) ? 0x80 : data, (long)(m68k_cycles_run() * 0.4)); } if (snd_log) printf("SND f%ld %02x pc %06x line %d cyc %d\n", frame_no, data, m68k_get_reg(nullptr, M68K_REG_PPC), cur_line, m68k_cycles_run()); break;
         case 0x04:
             if ((data & 7) != 7) { hold_irq = ~data & 7; main_set_irq(); }
             break;
@@ -269,6 +291,7 @@ static void misc_io_w(u32 off, u16 d, u16 mask) {
             }
             return;
         case 0x0020 / 2: { static const bool rl = getenv("SH_RSTLOG") != nullptr; if (rl) printf("RST %04x %.9f f%ld line %d\n", d, now_cycles() / 1e7, frame_no, cur_line); }
+            if (mask & 0x00ff) { int e = latch_entry(0x200 | ((d & 1) << 8)); latch_bytes.push_back(e); if (sndc_on) { snd_event(e & 0x3ff, e >> 16); lq_log(e); } }
             if (mask & 0x00ff) sh_sound_reset(!(d & 1), (long)(m68k_cycles_run() * 0.4)); return;   // D0: 0 holds the sound board in reset
         case 0x3000 / 2: return;          // watchdog
         case 0x3020 / 2: return;          // ADC start
@@ -452,7 +475,7 @@ static void run_cpu(int c, double cycles) {
     m68k_set_irq(c == 0 ? main_level() : (sub_irq4 ? 4 : 0));
     debt[c] += cycles;
     if (c == 0 && main_halted) debt[c] = 0;
-    else if (debt[c] > 0) debt[c] -= m68k_execute((int)ceil(debt[c]));
+    else if (debt[c] > 0) { int r = m68k_execute((int)ceil(debt[c])); debt[c] -= r; if (c == 0) main_done += r; }
     if (busy_log) {     // the slices each CPU ends outside its wait for the vblank flag (0x60400): main 0x149c-0x14a3, sub 0x10ca-0x10d1
         u32 pc = m68k_get_reg(nullptr, M68K_REG_PC);
         bool idle = c == 0 ? (pc >= 0x149c && pc < 0x14a4) : (pc >= 0x10ca && pc < 0x10d2);
@@ -468,6 +491,17 @@ static long picture_count;
 // samples kept for SH_WAV=<file> (31,250 Hz stereo, the voices' sum clipped: MAME's -wavwrite of the PCM alone, measured)
 static std::vector<int16_t> audio; static double z80_debt; static bool audio_on, sound_ready;
 static void run_sound(double main_cycles) {
+    if (sndc_on) {                           // a tick every 8 ms of the main CPU's time (80,000 cycles)
+        static double acc; static FILE* f; static int32_t buf[250];
+        if (!f) { f = fopen(getenv("SH_SNDC"), "wb"); static const char h[44] = {0}; fwrite(h, 1, 44, f); }
+        acc += main_cycles;
+        while (acc >= 80000) {
+            acc -= 80000; snd_tick(buf, 250, 1); lq_log(-1);
+            static long nt; if (getenv("SH_SNDDBG") && ++nt % 375 == 0) snd_debug();
+            for (int i = 0; i < 250; i++) { int v = buf[i] / 2; int16_t o = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); fwrite(&o, 2, 1, f); }
+            fflush(f);
+        }
+    }
     if (!sound_ready) return;
     z80_debt += main_cycles * 0.4;
     long c = (long)z80_debt; if (c <= 0) return;
@@ -896,6 +930,11 @@ static void run_line(int line) {
         }
         pic_hash_print();
         static const bool vst = getenv("SH_VSTATE") != nullptr;
+        static const long rdump = getenv("SH_RAMCMP") ? atol(getenv("SH_RAMCMP")) : -1;
+        if (frame_no == rdump && sndc_on) {
+            for (int a = 0xf800; a < 0x10000; a++) { uint8_t x = sh_sound_peek(a), y = snd_peek(a); if (x != y) printf("RAM %04x ref %02x snd %02x\n", a, x, y); }
+            for (int a = 0xf000; a < 0xf100; a++) { uint8_t x = sh_sound_peek(a), y = snd_peek(a); if (x != y) printf("PCM %04x ref %02x snd %02x\n", a, x, y); }
+        }
         if (vst && frame_no % 62 == 0) { printf("V %ld", frame_no); for (int n = 0; n < 16; n++) printf(" %02x/%02x/%02x", sh_sound_peek(0xf086 + 8 * n), sh_sound_peek(0xf002 + 8 * n), sh_sound_peek(0xf085 + 8 * n)); printf("\n"); }
         picture_count++;
         apply_inputs(frame_no + 1);
@@ -933,6 +972,7 @@ static void parse_events(const char* s) {
         else if (e.k == "stats") stats = true;
         else if (e.k == "snd") snd_log = true;
         else if (e.k == "latchlog") sh_sound_latch_log = [](uint8_t d) { printf("L f%ld %02x\n", frame_no, d); };
+        else if (e.k == "sndclog") snd_pcm_log = [](uint8_t r, uint8_t d) { printf("C f%ld %02x %02x\n", frame_no, r, d); };
         else if (e.k == "pcmlog") sh_sound_pcm_log = [](uint8_t r, uint8_t d) { printf("P f%ld %02x %02x\n", frame_no, r, d); };
         else if (e.k == "busy") busy_log = true;
         else if (e.k == "hash") hash_log = true;
@@ -1033,7 +1073,9 @@ int main(int argc, char** argv) {
     out_dir = out;
     if (argc > 4) parse_events(argv[4]);
     video_init();
-    sh_sound_init(soundrom, pcmrom); sound_ready = true; audio_on = getenv("SH_WAV") != nullptr;
+    sh_sound_init(soundrom, pcmrom); sound_ready = true;
+    static u8 pcm128[0x20000]; for (int i = 0; i < 4; i++) memcpy(pcm128 + 0x8000 * i, pcmrom + 0x10000 * i, 0x8000);
+    if (getenv("SH_SNDC")) { snd_init(soundrom, pcm128); sndc_on = true; if (getenv("SH_SNDHIST")) snd_pc_hist = (unsigned*)calloc(65536, sizeof(unsigned)); } audio_on = getenv("SH_WAV") != nullptr;
 
     m68k_init();
     for (int c = 0; c < 2; c++) {
@@ -1098,6 +1140,7 @@ int main(int argc, char** argv) {
     for (int c = 0; c < 2; c++) if (cover[c]) {
         FILE* f = fopen((out_dir + "/cover" + std::to_string(c) + ".bin").c_str(), "wb"); fwrite(cover[c], 1, 0x100000, f); fclose(f);
     }
+    if (snd_pc_hist) { FILE* f = fopen(getenv("SH_SNDHIST"), "w"); for (int a = 0; a < 65536; a++) if (snd_pc_hist[a]) fprintf(f, "%04x %u\n", a, snd_pc_hist[a]); fclose(f); }
     if (audio_on && !audio.empty()) {          // SH_WAV: the SegaPCM's sound at MAME's -wavwrite level, 31,250 Hz stereo
         FILE* f = fopen(getenv("SH_WAV"), "wb");
         uint32_t n = audio.size() * 2, rate = 31250, br = rate * 4;
@@ -1169,6 +1212,10 @@ extern "C" void shb_sub_write(unsigned off, unsigned d, unsigned mask) {
 }
 // the last picture as the FPGA's writer makes it: a byte a pixel, the colours numbered in the order met (0 kept for
 // the 32X's black border), their BGR555 words; returns the number of colours (255 at most: past it, 255)
+extern "C" int shb_take_latch(void) {    // every byte to the sound board and its resets, in order (register 0x48's bits 9-0)
+    if (latch_bytes.empty()) return -1;
+    int c = latch_bytes.front(); latch_bytes.erase(latch_bytes.begin()); return c;
+}
 extern "C" int shb_take_sound(void) {
     if (snd_q.empty()) return -1;
     int c = snd_q.front(); snd_q.erase(snd_q.begin()); return c;

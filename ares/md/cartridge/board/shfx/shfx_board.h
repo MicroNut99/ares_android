@@ -18,6 +18,8 @@
 //  (registers also: + 0x0C pictures not shown, + 0x0E the last picture's runs, + 0x14 the next sound command (bit 15
 //  while there was one: a packet's first byte, sh_core.sv), + 0x16 the core's version 0x0101,
 //  + 0x18 / 0x1A (write) the key 'SH' 'ON' that starts the core (map_shfx.sv), + 0x18 (read) 1 once it runs)
+//Kit 6 (0x0106, docs/12): + 0x48 the sound board's bytes and resets in order (bit 15 one was there, bit 9 a reset,
+//bit 8 its level), + 0x4A that one's time after the one before (4 us; 4095: 16 ms or more) - shb_take_latch.
 //Kit 5 (version 0x0105, docs/10): the diagnostics at + 0x1A-0x3E (sh_core.sv): the model gives what it knows - the
 //sound commands queued, the pictures not shown, the frames, the console's accesses a frame, the line of the Genesis'
 //vblank - and 0 for the timings it has no clock for (the copy, the drawing, the writer, the 68000's load, its memory);
@@ -46,6 +48,7 @@ struct ShFx {
   std::vector<Ev> evs;
   std::vector<u8> roms;
   u32 nRd = 0, nWr = 0, nReg = 0, nVbl = 0, nRoadCtl = 0, nLock = 0, rleSum = 0, rleMax = 0, rleN = 0;   //(SHFX_TRACE: a line a second)
+  u16 lqLast = 0;
   u16 dsw = 0xfe, steerStep = 8, sndPush = 0, frameCount = 0, conFrame = 0, conLast = 0, syncLine = 0;
 
   auto start(const std::vector<u8>& pack) -> void {
@@ -162,7 +165,13 @@ struct ShFx {
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
       else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); if(c >= 0) sndPush++; }   //(the next sound command: MD+)
-      else if(r == 0x16) v = 0x0105;
+      else if(r == 0x16) v = 0x0106;
+      else if(r == 0x48) { int e = shb_take_latch(); if(e < 0) v = 0; else { v = (u16)(0x8000 | (e & 0x3ff)); lqLast = (u16)((e >> 16) & 0xfff); }   //(the latch FIFO: docs/12)
+        static FILE* lql = nullptr; static int lqo = -1;   //ARES_SHFX_LQLOG=file: each entry taken "e delta", "-" when empty (a tick's end)
+        if(lqo < 0) { const char* p = getenv("ARES_SHFX_LQLOG"); lqo = p ? 1 : 0; if(p) lql = fopen(p, "w"); }
+        if(lql) { if(e < 0) fputs("-\n", lql); else fprintf(lql, "%03x %u\n", e & 0x3ff, (e >> 16) & 0xfff); }
+      }
+      else if(r == 0x4a) v = lqLast;
       else if(r == 0x1e) v = sndPush & 0xff;
       else if(r == 0x22) v = dropped;
       else if(r == 0x32) v = conLast;

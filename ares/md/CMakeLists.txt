@@ -257,7 +257,7 @@ set_source_files_properties(${_gotx_src} TARGET_DIRECTORY ares PROPERTIES
 # Super Hang-On CD32X FX: the 'shfx' model - the arcade's main 68000 and video (the repo's host/shangon_ref.cpp as a
 # library, tools/ares/sync_model.sh) with Musashi (MIT) for its 68000
 set(_shfx ${CMAKE_CURRENT_SOURCE_DIR}/cartridge/board/shfx)
-set(_shfx_c ${_shfx}/musashi/m68kcpu.c ${_shfx}/musashi/m68kops.c ${_shfx}/musashi/m68kdasm.c ${_shfx}/musashi/softfloat/softfloat.c ${_shfx}/z80/z80.c)
+set(_shfx_c ${_shfx}/musashi/m68kcpu.c ${_shfx}/musashi/m68kops.c ${_shfx}/musashi/m68kdasm.c ${_shfx}/musashi/softfloat/softfloat.c ${_shfx}/z80/z80.c ${_shfx}/snd.c)
 set(_shfx_cpp ${_shfx}/sh_board.cpp ${_shfx}/sh_sound.cpp)
 target_sources(ares PRIVATE ${_shfx_c} ${_shfx_cpp})
 set_source_files_properties(${_shfx_c} TARGET_DIRECTORY ares PROPERTIES LANGUAGE C

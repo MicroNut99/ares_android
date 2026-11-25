@@ -146,7 +146,10 @@ void sh_sound_init(const uint8_t* z80rom, const uint8_t* pcm256k) {
     B.cpu.read_byte = rd; B.cpu.write_byte = wr; B.cpu.port_in = pin; B.cpu.port_out = pout;
     B.latch = 0; B.nmi_line = false; B.reset = false; B.pcm_phase = 128; B.target = 0; B.nev = 0;
 }
+static unsigned long rel_cyc;
 static void latch_now(uint8_t d) {
+    static const bool dbg = getenv("SH_NMIDBG") != nullptr;
+    if (dbg) fprintf(stderr, "REF nmi %02x at +%lu pc %04x line %d\n", d, B.cpu.cyc - rel_cyc, B.cpu.pc, B.nmi_line);
     B.latch = d;
     if (!B.nmi_line) { B.nmi_line = true; z80_gen_nmi(&B.cpu); }     // (the NMI on the line's rise)
 }
@@ -165,6 +168,7 @@ static void reset_now(bool on) {
         z80_init(&B.cpu); B.cpu.read_byte = rd; B.cpu.write_byte = wr; B.cpu.port_in = pin; B.cpu.port_out = pout;
         B.cpu.cyc = c; B.nmi_line = false;
     }
+    if (!on && B.reset) rel_cyc = B.cpu.cyc;
     B.reset = on;
 }
 int sh_sound_run(long cycles, int16_t* out, int max_frames) {

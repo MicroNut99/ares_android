@@ -23,6 +23,7 @@ unsigned shb_sub_read(unsigned off);                  /* the sub's world, 0x6000
 void     shb_sub_write(unsigned off, unsigned data, unsigned mask);
 int      shb_picture8(unsigned char* pix /* 320 x 224 */, unsigned short* pal /* 256 BGR555 */);
 int      shb_take_sound(void);                        /* the next sound command (a packet's first byte), -1 none */
+int      shb_take_latch(void);                        /* the sound board's bytes and resets, in order (bits 9-0 as register 0x48, bits 27-16 as 0x4A); -1 none */
 #ifdef __cplusplus
 }
 #endif
