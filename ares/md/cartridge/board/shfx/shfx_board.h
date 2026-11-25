@@ -48,6 +48,7 @@ struct ShFx {
   std::vector<Ev> evs;
   std::vector<u8> roms;
   u32 nRd = 0, nWr = 0, nReg = 0, nVbl = 0, nRoadCtl = 0, nLock = 0, rleSum = 0, rleMax = 0, rleN = 0;   //(SHFX_TRACE: a line a second)
+  int lqHead = -1;   //(kit 15: the head entry, kept until a write of its number takes it)
   u16 lqLast = 0, lqHold = 0; u8 lqSeq = 0;   //(kit 13: the entries numbered; the last one taken kept at 0x4C)
   bool keyed = false, keyHi = false;   //the key 'SH' 'ON' (0x18, 0x1A) starts the arcade, as map_shfx.sv (kit 7: the saved switches go in before it reads them)
   u16 dsw = 0xfe, coin = 0xff, steerStep = 8, sndPush = 0, frameCount = 0, conFrame = 0, conLast = 0, syncLine = 0;
@@ -168,7 +169,7 @@ struct ShFx {
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
       else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); if(c >= 0) sndPush++; }   //(the next sound command: MD+)
-      else if(r == 0x16) v = 0x010d;   //(kit 13: 0x48 read without taking, taken by a write of its number)
+      else if(r == 0x16) v = 0x010f;   //(kit 15: 0x4E the head kept, 0x50 its number and time, taken by a read at 0x60 + 2n)   //(kit 13: 0x48 read without taking, taken by a write of its number)
       else if(r == 0x48) { int e = shb_take_latch();   //(the latch FIFO: docs/12; kit 13: numbered, kept at 0x4C)
         if(e < 0) v = (u16)(lqSeq << 11); else { v = (u16)(0x8000 | lqSeq << 11 | (e & 0x3ff)); lqLast = (u16)(lqSeq << 12 | ((e >> 16) & 0xfff)); lqSeq = (lqSeq + 1) & 15; }
         lqHold = v;
@@ -177,6 +178,17 @@ struct ShFx {
         if(lql) { if(e < 0) fputs("-\n", lql); else fprintf(lql, "%03x %u\n", e & 0x3ff, (e >> 16) & 0xfff); }
       }
       else if(r == 0x4a) v = lqLast;
+      else if(r == 0x4e || r == 0x50) {   //(kit 15) the head, read as often as asked
+        if(lqHead < 0) lqHead = shb_take_latch();
+        if(r == 0x4e) v = lqHead < 0 ? (u16)(lqSeq << 11) : (u16)(0x8000 | lqSeq << 11 | (lqHead & 0x3ff));
+        else v = lqHead < 0 ? (u16)(lqSeq << 12) : (u16)(lqSeq << 12 | ((lqHead >> 16) & 0xfff));
+      }
+      else if(r >= 0x60 && r < 0x80) {    //(kit 15) a read at 0x60 + 2n takes the head if its number is n
+        u8 n = (u8)((r - 0x60) >> 1);
+        bool took = lqHead >= 0 && n == lqSeq;
+        if(took) { lqHead = -1; lqSeq = (lqSeq + 1) & 15; }
+        v = (u16)((took ? 0x8000 : 0) | n << 11);
+      }
       else if(r == 0x4c) v = lqHold;
       else if(r == 0x1e) v = sndPush & 0xff;
       else if(r == 0x22) v = dropped;
@@ -220,7 +232,8 @@ struct ShFx {
       if(r == 0x1a) dsw = data & 0xff;
       if(r == 0x1c) steerStep = (data & 15) ? (data & 15) : 1;
       if(r == 0x1e) coin = data & 0xff;     //(kit 7: the coin switches)
-      if(r == 0x20) shb_pause(data & 1);    //(kit 7: the main CPU stopped)
+      if(r == 0x20) shb_pause(data & 1);
+    //(kit 7: the main CPU stopped)
       if(r == 0x12) {   //the Genesis' vblank: the arcade's line 223 from here (the two frames kept together)
         syncLine = (u16)line;
         if(line < 223) { while(line < 223) step(); }   //(behind: the lines run now)
