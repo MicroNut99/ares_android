@@ -10,12 +10,12 @@
 //                     CPU reset the sub (cleared by the read)  +0x08 the main CPU's line  +0x0A the sub's IRQ4 line
 //                     +0x10 (write) the pad: Genesis buttons, 1 = pressed (bits: U D L R B C A St = 0-7)
 //                     +0x12 (write) the Genesis' vblank: the frame's line 223 starts now
-//                     +0x40 + 2k (read) lock picture k (0-2) for the copy, 3 none
-//  0x300000-0x36BFFF  the pictures (window 6, the SH2s' 0x02300000): picture k at + k x 0x24000 - 320 x 224 bytes,
-//                     then 256 BGR555 words at + 0x11800, its frame at + 0x11A00, its colours at + 0x11A02, its run
-//                     words at + 0x11A04 (0: copy it plain - its runs would be no fewer words), its line table for the
-//                     32X's run-length mode at + 0x11C00 (224 words, 0x100 + the line's first run), the runs at
-//                     + 0x12000 (a word a run of 1-256 pixels: the length - 1, the colour)
+//                     +0x40 + 2k (read) lock picture k (0/1) for the copy, 3 none
+//  0x300000-0x323FFF  the pictures (window 6, the SH2s' 0x02300000): two buffers of 0x12000 bytes, as the core's
+//                     sh_writer.sv writes them: + 0 the runs (a word a run of 1-256 pixels: the length - 1, the colour)
+//                     or the plain picture (320 x 224 bytes), + 0x11800 the colours (BGR555, n at + 2n), + 0x11A00 the
+//                     picture's number, + 0x11A02 its colours, + 0x11A04 its runs (0: plain), + 0x11C00 the line table
+//  (registers also: + 0x0C pictures not shown, + 0x0E the last picture's runs, + 0x16 the core's version 0x0101)
 //The arcade's ROMs: the cart's pack from bank 16 (tools/sh_pack.py): + 0 the main ROM, + 0x60000 the sub ROM (the
 //original: the main CPU reads it), + 0xC0000 the tiles, + 0xD8000 the road ROM, + 0x100000 the sprites.
 //SHFX_INPUT=<shangon_ref events> (coin:N, start:N, gas:N-M, brake:N-M, steer:N-M=VV) drives the inputs by frame instead
@@ -30,13 +30,11 @@ struct ShFx {
   long frame = 0;
   u16 pad = 0;
   int steer = 0x80;
-  u32 lock = 3, front = 3, wbuf = 0;
-  u16 frames = 0;
-  bool subReset = false;
-  std::vector<u8> pic[3];
-  std::vector<u16> pal[3];
-  u16 picFrame[3] = {0, 0, 0}, picColours[3] = {0, 0, 0}, picRuns[3] = {0, 0, 0};
-  std::vector<u16> runs[3], ltab[3];
+  u32 lock = 3, front = 3;
+  u16 frames = 0, dropped = 0, lastRuns = 0;
+  bool subReset = false, nextRuns = true;
+  std::vector<u8> pic, buf[2];         //the picture (a byte a pixel), the two buffers as the SRAM holds them (sh_writer.sv)
+  std::vector<u16> pal;
   struct Ev { std::string k; long a, b; int v; };
   std::vector<Ev> evs;
   std::vector<u8> roms;
@@ -46,10 +44,8 @@ struct ShFx {
     roms = pack;
     shb_roms r{roms.data(), roms.data() + 0x60000, roms.data() + 0xc0000, roms.data() + 0x100000, roms.data() + 0xd8000};
     shb_init(&r);
-    for(auto& p : pic) p.assign(320 * 224, 0);
-    for(auto& p : pal) p.assign(256, 0);
-    for(auto& p : runs) p.assign(0x11800 / 2, 0);
-    for(auto& p : ltab) p.assign(224, 0);
+    pic.assign(320 * 224, 0); pal.assign(256, 0);
+    for(auto& b : buf) b.assign(0x12000, 0);
     on = true; line = 0; frame = 0;
     if(auto e = getenv("SHFX_INPUT")) {
       std::string s = e; size_t p = 0;
@@ -89,6 +85,37 @@ struct ShFx {
     return in;
   }
 
+  //the picture as sh_writer.sv writes it (docs/10): into the buffer the SH2 has not locked and that is not the newest
+  //(both taken: the newest, taken back), as runs when the last picture's runs were under 28,000 words (more than 35,615:
+  //not shown, the next one plain), else plain; the picture's colours numbered in the order met
+  auto picture() -> void {
+    u32 b;
+    if(front == 3) b = lock == 0 ? 1 : 0;
+    else if(lock != 3 && lock != front) { b = front; front = 3; }
+    else b = front ^ 1;
+    auto& o = buf[b];
+    auto put = [&](u32 a, u16 v) { o[a] = v >> 8; o[a + 1] = v & 0xff; };
+    u32 ncol = (u32)shb_picture8(pic.data(), pal.data());
+    for(u32 n = 1; n <= ncol && n < 256; n++) put(0x11800 + 2 * n, pal[n]);
+    bool runsMode = nextRuns, failed = false;
+    u32 n = 0; const u32 cap = 35616;
+    for(u32 y : range(224)) {
+      const u8* r = pic.data() + y * 320; u32 x = 0;
+      if(runsMode) put(0x11c00 + 2 * y, (u16)(0x100 + n));
+      while(x < 320) {
+        u32 e = x + 1; while(e < 320 && e - x < 256 && r[e] == r[x]) e++;
+        if(runsMode) { if(n < cap) put(2 * n, (u16)((e - x - 1) << 8 | r[x])); else failed = true; }
+        n++; x = e;
+      }
+      if(!runsMode) for(u32 i : range(320)) o[y * 320 + i] = r[i];
+    }
+    put(0x11a00, (u16)(frames + 1)); put(0x11a02, (u16)ncol); put(0x11a04, (u16)(runsMode && !failed ? n : 0));
+    lastRuns = (u16)n; rleSum += n; rleN++; rleMax = max(rleMax, n);
+    nextRuns = n < 28000 && !(runsMode && failed);
+    if(runsMode && failed) dropped++;
+    else { front = b; frames++; }
+  }
+
   //one line of the arcade's frame; at line 224 the picture into a buffer neither the newest nor the locked one
   auto step() -> void {
     if(!on) return;
@@ -96,25 +123,7 @@ struct ShFx {
     long before = shb_pictures();
     shb_line(line, &in);
     if(shb_take_sub_reset()) subReset = true;
-    if(shb_pictures() != before) {
-      picColours[wbuf] = (u16)shb_picture8(pic[wbuf].data(), pal[wbuf].data());
-      {   //the run-length form: a word a run of <= 256 pixels; kept when it is fewer words than the plain picture
-        u32 n = 0; const u32 limit = 320 * 224 / 2 - 224;
-        for(u32 y : range(224)) {
-          const u8* r = pic[wbuf].data() + y * 320; u32 x = 0;
-          ltab[wbuf][y] = (u16)(0x100 + n);
-          while(x < 320) {
-            u32 e = x + 1; while(e < 320 && e - x < 256 && r[e] == r[x]) e++;
-            if(n < limit) runs[wbuf][n] = (u16)((e - x - 1) << 8 | r[x]);
-            n++; x = e;
-          }
-        }
-        picRuns[wbuf] = n < limit ? (u16)n : 0;
-        rleSum += n; rleN++; rleMax = max(rleMax, n);
-      }
-      picFrame[wbuf] = ++frames; front = wbuf;
-      for(u32 k : range(3)) if(k != front && k != lock) { wbuf = k; break; }
-    }
+    if(shb_pictures() != before) picture();
     if(++line == 262) {
       line = 0; frame++;
       if(getenv("SHFX_TRACE") && frame % 60 == 0) {
@@ -138,20 +147,16 @@ struct ShFx {
       else if(r == 0x06) { v = subReset ? 1 : 0; subReset = false; }
       else if(r == 0x08) v = (u16)line;
       else if(r == 0x0a) v = (u16)shb_sub_irq4();
+      else if(r == 0x0c) v = dropped;
+      else if(r == 0x0e) v = lastRuns;
+      else if(r == 0x16) v = 0x0101;
       else if(r >= 0x40 && r < 0x48) { lock = (r - 0x40) >> 1; v = (u16)lock; nLock++; }
       else v = 0;
       return true;
     }
-    if(local >= 0x300000 && local < 0x36c000) {
-      u32 k = (local - 0x300000) / 0x24000, o = (local - 0x300000) % 0x24000;
-      if(o < 0x11800) v = (u16)(pic[k][o] << 8 | pic[k][o + 1]);
-      else if(o < 0x11a00) v = pal[k][(o - 0x11800) >> 1];
-      else if(o == 0x11a00) v = picFrame[k];
-      else if(o == 0x11a02) v = picColours[k];
-      else if(o == 0x11a04) v = picRuns[k];
-      else if(o >= 0x11c00 && o < 0x11c00 + 448) v = ltab[k][(o - 0x11c00) >> 1];
-      else if(o >= 0x12000 && o < 0x23800) v = runs[k][(o - 0x12000) >> 1];
-      else v = 0;
+    if(local >= 0x300000 && local < 0x324000) {
+      u32 k = (local - 0x300000) / 0x12000, o = (local - 0x300000) % 0x12000;
+      v = (u16)(buf[k][o] << 8 | buf[k][o + 1]);
       return true;
     }
     return false;
