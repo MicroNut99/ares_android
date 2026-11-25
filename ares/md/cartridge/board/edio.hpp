@@ -27,6 +27,7 @@ struct EdioModel {
 
   auto readIO(u32 address, n16 data) -> n16 {
     init();
+    { static int dead = getenv("ARES_EDIO_DEAD") ? 1 : 0; if(dead) return 0; }   //(ARES_EDIO_DEAD=1: every register reads 0 - an MCU that never answers)
     switch(address & 0xe) {
     case 0x0: { u8 b = 0; if(!tx.empty()) { b = tx.front(); tx.erase(tx.begin()); } return (n16)(b << 8 | b); }
     case 0x2: return (n16)((tx.empty() ? 0x8000 : 0) | std::min<size_t>(tx.size(), 0x7ff));
