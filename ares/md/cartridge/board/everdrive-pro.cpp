@@ -130,7 +130,7 @@ struct EverDrivePro : Interface {
   };
   static constexpr const char* rbfModels[] = {"ssf", "dracx", "gotx", "ordbg", "orfx", "cartfx-hur", "cartfx-oj", "cartfx-stx",
                                                "cartfx-hur8", "cartfx-oj8", "cartfx-stx8",
-                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22"};    //the models this board has (more as cores are added)
+                                               "cartfx-hur-v22", "cartfx-oj-v22", "cartfx-stx-v22", "shfx"};    //the models this board has (more as cores are added)
 
   auto identifyRbf() -> void {
     rbfModel = "";
@@ -175,6 +175,10 @@ struct EverDrivePro : Interface {
   //0x380000-0x3DFFFF once its key is read
   bool orfx = false;                        //rbfModel == "orfx"
   OrFx fx;
+  //Super Hang-On CD32X FX (shfx/shfx_board.h): the arcade's main CPU and video on the cart, the sub's world at cart
+  //0x160000-0x19FFFF, registers at 0x07F000, pictures at 0x300000; its ROMs packed from bank 16
+  bool shfx = false;                        //rbfModel == "shfx"
+  ShFx sh;
 
   //A fault the console has and the emulator cannot have by itself: a USB read of the cart's memory (edlink memrd) while
   //the game runs. In krikzz's base (lib_base pi_map.sv, dma.sv, mem_ctrl) the MCU's address and OE then replace the
@@ -269,11 +273,20 @@ struct EverDrivePro : Interface {
   auto dxTrap(u32 kind, const string& what) -> void { coreTrap(TrapDracx, kind, what); }
   static constexpr u32 GxBank = 26, GxDataBank = 16, GxScBank = 27, GxLba0 = 3590, GxSectors = 1882, GxPageSectors = 992;
 
-  auto frequency() -> u32 override { return dracx || gotx ? MasterClock : Interface::frequency(); }
+  auto frequency() -> u32 override { return shfx ? 6'293'700 : dracx || gotx ? MasterClock : Interface::frequency(); }
 
   //the cart's thread: the machine to its own time, a few hundred master clocks at a time; while it waits for a
   //sector (dxm_waiting), its time stands still and only the thread's goes on
   auto main() -> void override {
+    if(shfx) {   //a line of the arcade's frame (400 pixels at 6.2937 MHz)
+      if(!sh.on) {
+        std::vector<u8> pack(0x200000);
+        for(u32 n : range(0x100000)) { n16 w = ram[(16u << 18) + n]; pack[2 * n] = w >> 8; pack[2 * n + 1] = (u8)w; }
+        sh.start(pack);
+      }
+      sh.step();
+      return step(400);
+    }
     if(gotx) {
       if(!gx.on) return step(256);
       if(getenv("GOTX_TRACE")) { static u64 n; if(++n % 83'000 == 0) print("[gotx] machine frame ", gotm_frame(), " time ", (s64)gotm_now(), " drive next ", gotm_drive_next(), " missed ", gotm_missed(), " pad reads ", gxPadReads, " pad ", hex(gx.pad, 2L), "\n"); }
@@ -625,6 +638,7 @@ struct EverDrivePro : Interface {
     orfx = rbfModel == "orfx";
     ordbg = rbfModel == "ordbg" || orfx;
     gotx = rbfModel == "gotx";
+    shfx = rbfModel == "shfx";
     ram.allocate(16_MiB >> 1, 0xffff);
     //the EverDrive's RAM is not blank: it keeps whatever was there (other games, the menu).  A fixed
     //pattern instead of 0xffff, so a program that reads memory it never wrote shows it at once (an AND
@@ -696,6 +710,7 @@ struct EverDrivePro : Interface {
   auto read(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
     if(mdp.on) { n16 v; if(mdp.read((u32)(n22)address & ~1u, v)) return v; }   //(MD+ answers before the mapper)
     u32 word = offset(address) >> 1;
+    if(shfx) { u16 v; if(sh.read((u32)(n22)address & ~1u, v)) return v; }
     if(orfx) {
       u32 local = (n22)address; u16 v;
       if(fx.read(local, v, nowUs(), [&](u32 a) -> u16 { return (u16)ram[a >> 1]; })) return v;
@@ -760,6 +775,7 @@ struct EverDrivePro : Interface {
 
   auto write(n1 upper, n1 lower, n24 address, n16 data) -> void override {
     if(mdp.on && upper && lower) mdp.write((u32)(n22)address & ~1u, data);
+    if(shfx && sh.write((u32)(n22)address & ~1u, upper, lower, data)) return;
     if(ordbg && ((u32)(n22)address >> 16) != 0x3e) od.access(offset(address), true, data, (u32)(n22)address >> 19, nowUs());
     if(gotx && offset(address) >> 19 == GxBank) gxWrite((offset(address) & 0x7ffff), upper, lower, data);   //(map_got takes any write there, docs/36)
     if(gotx && gx.on && offset(address) >> 19 >= 16 && offset(address) >> 19 <= 30 && offset(address) >> 19 != GxBank) {
