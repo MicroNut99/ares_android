@@ -4,6 +4,7 @@
 #include "cartfx/cartfx.h"   //the CD32X cart compositor (CD32X-BootCamp cartfx/): Hurrican, Jazz REV, SuperTux REV
 #include "ordbg/ordbg_model.h"   //OutRun CD32X (fpga/ordbg): the EverDrive's 'ordbg' debug core
 #include "orfx/orfx_board.h"     //OutRun CD32X (fpga/orfx): the renderer core (with ordbg: 'orfx')
+#include "shfx/shfx_board.h"     //Super Hang-On CD32X FX: the arcade's main CPU and video ('shfx')
 namespace Board {
 
 //U-R-R (MicroNut99/rev32xcd cartridge/fpga): the Mega EverDrive PRO FPGA core's engine, when the
