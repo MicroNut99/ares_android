@@ -39,7 +39,8 @@ struct ShFx {
   long frame = 0;
   u16 pad = 0;
   int steer = 0x80;
-  u32 lock = 3, front = 3, lockN = 0;   //(kit 17) lockN: lock reads taken
+  u32 lock = 3, front = 3, lockN = 0;
+  bool smooth = false;   //(kit 18)   //(kit 17) lockN: lock reads taken
   u16 frames = 0, dropped = 0, lastRuns = 0;
   bool subReset = false, nextRuns = true;
   std::vector<u8> pic, buf[2];         //the picture (a byte a pixel), the two buffers as the SRAM holds them (sh_writer.sv)
@@ -113,17 +114,37 @@ struct ShFx {
     for(u32 n = 1; n <= ncol && n < 256; n++) put(0x11800 + 2 * n, pal[n]);
     bool runsMode = nextRuns, failed = false;
     u32 n = 0; const u32 cap = 35616;
+    u16 tsum = 0;
     for(u32 y : range(224)) {
-      const u8* r = pic.data() + y * 320; u32 x = 0;
+      const u8* r0 = pic.data() + y * 320; u32 x = 0;
+      //(kit 18) the blend of edges' steps, as sh_writer.sv: the line above's numbers as met (before the blend)
+      u8 r[320];
+      { u8 rcur = 0, cl = 0, au = 0, al = 0; u32 s = 0, ax = 0; bool clv = false, alv = false;
+        for(u32 i : range(320)) {
+          const u8 c = r0[i], u = y ? pic[(y - 1) * 320 + i] : 0;
+          if(i == 0) { rcur = c; s = 0; clv = false; au = u; ax = 0; alv = false; }
+          else {
+            if(c != rcur) { cl = rcur; clv = true; s = i; rcur = c; }
+            if(u != au) { al = au; alv = true; ax = i; au = u; }
+          }
+          const bool a = clv && cl == u && ax <= s && i - s < 12, bb = alv && al == c && s <= ax && i - ax < 12;
+          r[i] = (smooth && y && u != c && (a || bb) && ((i ^ y) & 1)) ? u : c;
+        }
+      }
       if(runsMode) put(0x11c00 + 2 * y, (u16)(0x100 + n));
+      u16 ls = 0;
       while(x < 320) {
         u32 e = x + 1; while(e < 320 && e - x < 256 && r[e] == r[x]) e++;
-        if(runsMode) { if(n < cap) put(2 * n, (u16)((e - x - 1) << 8 | r[x])); else failed = true; }
+        const u16 w = (u16)((e - x - 1) << 8 | r[x]); ls += w;
+        if(runsMode) { if(n < cap) put(2 * n, w); else failed = true; }
         n++; x = e;
       }
+      tsum += ls;
+      if(runsMode) put(0x11e00 + 2 * y, ls);   //(kit 18) the line's run words' sum
       if(!runsMode) for(u32 i : range(320)) o[y * 320 + i] = r[i];
     }
     put(0x11a00, (u16)(frames + 1)); put(0x11a02, (u16)ncol); put(0x11a04, (u16)(runsMode && !failed ? n : 0));
+    put(0x11a06, tsum);   //(kit 18) all of them
     lastRuns = (u16)n; rleSum += n; rleN++; rleMax = max(rleMax, n);
     nextRuns = n < 28000 && !(runsMode && failed);
     if(runsMode && failed) dropped++;
@@ -169,7 +190,7 @@ struct ShFx {
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
       else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); if(c >= 0) sndPush++; }   //(the next sound command: MD+)
-      else if(r == 0x16) v = 0x0111;   //(kit 17: lock reads answer their count) (kit 16: kit 15 with one strobe flip-flop) (kit 15: 0x4E the head kept, 0x50 its number and time, taken by a read at 0x60 + 2n)   //(kit 13: 0x48 read without taking, taken by a write of its number)
+      else if(r == 0x16) v = 0x0112;   //(kit 18: the blend FX+0x22, line sums + 0x11E00, total + 0x11A06) (kit 17: lock reads answer their count) (kit 16: kit 15 with one strobe flip-flop) (kit 15: 0x4E the head kept, 0x50 its number and time, taken by a read at 0x60 + 2n)   //(kit 13: 0x48 read without taking, taken by a write of its number)
       else if(r == 0x48) { int e = shb_take_latch();   //(the latch FIFO: docs/12; kit 13: numbered, kept at 0x4C)
         if(e < 0) v = (u16)(lqSeq << 11); else { v = (u16)(0x8000 | lqSeq << 11 | (e & 0x3ff)); lqLast = (u16)(lqSeq << 12 | ((e >> 16) & 0xfff)); lqSeq = (lqSeq + 1) & 15; }
         lqHold = v;
@@ -233,6 +254,7 @@ struct ShFx {
       if(r == 0x1c) steerStep = (data & 15) ? (data & 15) : 1;
       if(r == 0x1e) coin = data & 0xff;     //(kit 7: the coin switches)
       if(r == 0x20) shb_pause(data & 1);
+      if(r == 0x22) smooth = data & 1;   //(kit 18) the writer's blend
     //(kit 7: the main CPU stopped)
       if(r == 0x12) {   //the Genesis' vblank: the arcade's line 223 from here (the two frames kept together)
         syncLine = (u16)line;
