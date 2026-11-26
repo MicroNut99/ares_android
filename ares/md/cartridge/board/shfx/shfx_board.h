@@ -254,7 +254,7 @@ struct ShFx {
       if(r == 0x1c) steerStep = (data & 15) ? (data & 15) : 1;
       if(r == 0x1e) coin = data & 0xff;     //(kit 7: the coin switches)
       if(r == 0x20) shb_pause(data & 1);
-      if(r == 0x22) smooth = data & 1;   //(kit 18) the writer's blend
+      //(kit 18: the blend did not fit the device - gone)
     //(kit 7: the main CPU stopped)
       if(r == 0x12) {   //the Genesis' vblank: the arcade's line 223 from here (the two frames kept together)
         syncLine = (u16)line;
