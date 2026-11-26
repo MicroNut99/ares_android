@@ -21,6 +21,7 @@ int      shb_sub_irq4(void);                          /* the sub's IRQ4 line (li
 int      shb_take_sub_reset(void);                    /* the main CPU's RESET since the last call: restart the sub */
 unsigned shb_sub_read(unsigned off);                  /* the sub's world, 0x60000-0x9FFFF */
 void     shb_sub_write(unsigned off, unsigned data, unsigned mask);
+extern int shb_smooth;                                /* (kit 18) ROAD EDGES SOFT (register 0x22 bit 0) */
 int      shb_picture8(unsigned char* pix /* 320 x 224 */, unsigned short* pal /* 256 BGR555 */);
 int      shb_take_sound(void);                        /* the next sound command (a packet's first byte), -1 none */
 void     shb_pause(int on);                           /* (kit 7) register 0x20 bit 0: the main CPU stopped */

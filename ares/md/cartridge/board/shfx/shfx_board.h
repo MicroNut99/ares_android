@@ -128,7 +128,7 @@ struct ShFx {
             if(u != au) { al = au; alv = true; ax = i; au = u; }
           }
           const bool a = clv && cl == u && ax <= s && i - s < 12, bb = alv && al == c && s <= ax && i - ax < 12;
-          r[i] = (smooth && y && u != c && (a || bb) && ((i ^ y) & 1)) ? u : c;
+          r[i] = c; (void)a; (void)bb; (void)u;   //(kit 18: the checker blend gone; ROAD EDGES SOFT is in sh_board.cpp)
         }
       }
       if(runsMode) put(0x11c00 + 2 * y, (u16)(0x100 + n));
@@ -254,7 +254,7 @@ struct ShFx {
       if(r == 0x1c) steerStep = (data & 15) ? (data & 15) : 1;
       if(r == 0x1e) coin = data & 0xff;     //(kit 7: the coin switches)
       if(r == 0x20) shb_pause(data & 1);
-      //(kit 18: the blend did not fit the device - gone)
+      if(r == 0x22) shb_smooth = data & 1;   //(kit 18) ROAD EDGES SOFT
     //(kit 7: the main CPU stopped)
       if(r == 0x12) {   //the Genesis' vblank: the arcade's line 223 from here (the two frames kept together)
         syncLine = (u16)line;

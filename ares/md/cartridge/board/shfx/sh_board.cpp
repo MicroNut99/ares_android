@@ -1233,12 +1233,18 @@ extern "C" int shb_take_sound(void) {
     if (snd_q.empty()) return -1;
     int c = snd_q.front(); snd_q.erase(snd_q.begin()); return c;
 }
+extern "C" { int shb_smooth = 0; }   // (kit 18) ROAD EDGES SOFT: a road pixel after a road pixel of another colour is their mean (road: index >= 0x7C0 here; the RTL takes it from its video)
 extern "C" int shb_picture8(unsigned char* pix, unsigned short* pal) {
     int n = 1; std::vector<int> map(1 << 15, -1);
     pal[0] = 0;
     for (int y = 0; y < 224; y++) for (int x = 0; x < 320; x++) {
         const u8* c = rgbframe[y][x];
         int v = (c[0] >> 3) | ((c[1] >> 3) << 5) | ((c[2] >> 3) << 10);
+        if (shb_smooth && x && (bitmap[y][x] & 0xfff) >= 0x7c0 && (bitmap[y][x - 1] & 0xfff) >= 0x7c0) {
+            const u8* p = rgbframe[y][x - 1];
+            const int u = (p[0] >> 3) | ((p[1] >> 3) << 5) | ((p[2] >> 3) << 10);
+            if (u != v) v = (((v & 31) + (u & 31)) >> 1) | (((((v >> 5) & 31) + ((u >> 5) & 31)) >> 1) << 5) | (((((v >> 10) & 31) + ((u >> 10) & 31)) >> 1) << 10);
+        }
         if (map[v] < 0) { if (n < 256) { map[v] = n; pal[n] = v; n++; } else map[v] = 255; }
         pix[y * 320 + x] = map[v];
     }
