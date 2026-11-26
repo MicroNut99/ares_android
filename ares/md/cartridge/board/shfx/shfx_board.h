@@ -39,7 +39,7 @@ struct ShFx {
   long frame = 0;
   u16 pad = 0;
   int steer = 0x80;
-  u32 lock = 3, front = 3;
+  u32 lock = 3, front = 3, lockN = 0;   //(kit 17) lockN: lock reads taken
   u16 frames = 0, dropped = 0, lastRuns = 0;
   bool subReset = false, nextRuns = true;
   std::vector<u8> pic, buf[2];         //the picture (a byte a pixel), the two buffers as the SRAM holds them (sh_writer.sv)
@@ -169,7 +169,7 @@ struct ShFx {
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
       else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); if(c >= 0) sndPush++; }   //(the next sound command: MD+)
-      else if(r == 0x16) v = 0x0110;   //(kit 16: kit 15 with one strobe flip-flop) (kit 15: 0x4E the head kept, 0x50 its number and time, taken by a read at 0x60 + 2n)   //(kit 13: 0x48 read without taking, taken by a write of its number)
+      else if(r == 0x16) v = 0x0111;   //(kit 17: lock reads answer their count) (kit 16: kit 15 with one strobe flip-flop) (kit 15: 0x4E the head kept, 0x50 its number and time, taken by a read at 0x60 + 2n)   //(kit 13: 0x48 read without taking, taken by a write of its number)
       else if(r == 0x48) { int e = shb_take_latch();   //(the latch FIFO: docs/12; kit 13: numbered, kept at 0x4C)
         if(e < 0) v = (u16)(lqSeq << 11); else { v = (u16)(0x8000 | lqSeq << 11 | (e & 0x3ff)); lqLast = (u16)(lqSeq << 12 | ((e >> 16) & 0xfff)); lqSeq = (lqSeq + 1) & 15; }
         lqHold = v;
@@ -200,7 +200,7 @@ struct ShFx {
         v = fake[(r - 0x24) >> 1];                                             // accesses, memory, busy: kit 5 in the bench)
       }
       else if(r == 0x18) v = keyed ? 1 : 0;   //(1: the core runs, after the key)
-      else if(r >= 0x40 && r < 0x48) { lock = (r - 0x40) >> 1; v = (u16)lock; nLock++; }
+      else if(r >= 0x40 && r < 0x48) { lock = (r - 0x40) >> 1; nLock++; lockN++; v = (u16)(((lockN & 0x3fff) << 2) | lock); }   //(kit 17) {lock reads taken, k}
       else v = 0;
       return true;
     }
