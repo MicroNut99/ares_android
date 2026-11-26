@@ -95,6 +95,7 @@ struct ShFx {
     if(pad & 0x20) in.unknown &= ~0x01;
     if(pad & 0x10) in.adc[1] = 0xff;
     if(pad & 0x40) in.adc[2] = 0xff;
+    in.adc[3] = (u8)((pad & 1) | (pad & 2) | ((pad & 0x50) ? 4 : 0));   //(kit 19) channel 3: up, down, A or B
     if(pad & 0x0700) in.unknown &= ~0x20;   //(X, Y or Z: the Supercharger)
     in.adc[0] = steer;
     return in;
@@ -190,7 +191,7 @@ struct ShFx {
       else if(r == 0x0c) v = dropped;
       else if(r == 0x0e) v = lastRuns;
       else if(r == 0x14) { int c = shb_take_sound(); v = c < 0 ? 0 : (u16)(0x8000 | c); if(c >= 0) sndPush++; }   //(the next sound command: MD+)
-      else if(r == 0x16) v = 0x0112;   //(kit 18: the blend FX+0x22, line sums + 0x11E00, total + 0x11A06) (kit 17: lock reads answer their count) (kit 16: kit 15 with one strobe flip-flop) (kit 15: 0x4E the head kept, 0x50 its number and time, taken by a read at 0x60 + 2n)   //(kit 13: 0x48 read without taking, taken by a write of its number)
+      else if(r == 0x16) v = 0x0113;   //(kit 19: ADC channel 3 up / down / A or B) (kit 18: the blend FX+0x22, line sums + 0x11E00, total + 0x11A06) (kit 17: lock reads answer their count) (kit 16: kit 15 with one strobe flip-flop) (kit 15: 0x4E the head kept, 0x50 its number and time, taken by a read at 0x60 + 2n)   //(kit 13: 0x48 read without taking, taken by a write of its number)
       else if(r == 0x48) { int e = shb_take_latch();   //(the latch FIFO: docs/12; kit 13: numbered, kept at 0x4C)
         if(e < 0) v = (u16)(lqSeq << 11); else { v = (u16)(0x8000 | lqSeq << 11 | (e & 0x3ff)); lqLast = (u16)(lqSeq << 12 | ((e >> 16) & 0xfff)); lqSeq = (lqSeq + 1) & 15; }
         lqHold = v;
