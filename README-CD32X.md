@@ -110,6 +110,23 @@ The log says what it found: `[EverDrive PRO] mega-pro.rbf: krikzz map_ssf (the e
 adds an engine to the cart adds its model to `ares/md/cartridge/board/everdrive-pro.cpp` (`rbfModels`) on a
 branch, with the console's word on it - a green ares run is never a console pass.
 
+### MD+: the music from the SD card (v1.12 registers, v1.13 sound; 24 Nov 2026)
+
+krikzz's MD+ (`mapper/lib_base/mdp.sv`, in every EverDrive PRO core built with `MDP_ON`, `map_ssf` among them) plays
+CD audio tracks from the SD card. ares models it on the EverDrive PRO cart type, as the console does:
+
+| | |
+|---|---|
+| **On** | A `.cue` with the game's name beside its ROM (`OutRun_MD+_v33.32X` + `OutRun_MD+_v33.cue`), as the EverDrive's OS turns MD+ on for a ROM with one. The `.cue`'s tracks: BINARY (raw CD audio, 44.1 kHz 16-bit stereo) or WAVE, one file for the disc or one a track. `ARES_MDP_CUE=<file>` names another `.cue`; `ARES_MDPLUS=1` turns the registers on without one (nothing to play); `ARES_MDP=0` turns MD+ off. |
+| **Registers** (cart addresses; the core compares `addr[21:0]` on the cart's `/CE`) | `0x03F7FA` = `0xCD54` opens them (any other value closes). `0x03F7F6` / `0x03F7F8` read `0x5241` `0x5445` ("RATE") while open. `0x03F7FE`: a command; reads `0xFFFF` while one runs, a second is held behind it. |
+| **Commands** | `0x11tt` play track tt once, `0x12tt` play track tt repeated, `0x13xx` stop. |
+| **On a 32X** | the 68000's writes to the cart's first 512 KB with RV = 1 reach the registers (the console, OutRun V33, 23 Nov 2026); the cart's memory takes none of them but `0x03F7F6`-`0x03F7FF`. |
+| **Log** | `ARES_MDP_LOG=1`: every register access and command. `ARES_W0_LOG=1`: every 68000 write to the cart's first 512 KB with the 32X on. |
+
+Guessed, not measured: how long a command takes (ares: to the next frame) and the volume (full scale). With a Sega
+CD booted from its disc the cart answers at `0x400000`, so MD+ would be at `0x43F7FA` - untested on the console and
+not modelled. A green ares run is never a console pass.
+
 ### Error traps and injected faults (11 Nov 2026)
 
 ares answers every read at once, has no address glitches, loses no word on the bus and has no MCU taking the cart's
