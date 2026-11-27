@@ -20,6 +20,7 @@ static urrfx::Engine* urrFx = nullptr;
 #include "game-genie.cpp"
 #include "ram-cart.cpp"
 #include "mdp.hpp"
+#include "edio.hpp"          //the EverDrive's I/O registers and its MCU's file commands (Super Hang-On CD32X FX's saves)
 #include "everdrive-pro.cpp"
 #include "mega-32x.cpp"
 #include "debugger.cpp"

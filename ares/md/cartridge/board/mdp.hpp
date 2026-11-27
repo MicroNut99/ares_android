@@ -9,7 +9,7 @@
 //  - from mdp.sv: the address is the cart bus's A1-A21, so a 68000 write at 0x03F7FA with the 32X on (RV = 1) reaches
 //    it: OutRun CD32X V33 on the console (23 Nov 2026), although the EverDrive's memory there takes no such write.
 //  - the commands, from the games that use it on the console (OutRun CD32X V30-V36): 0x11tt track tt once, 0x12tt
-//    track tt repeated, 0x13xx stop.  Any other command: done, nothing played, one line printed - not known here.
+//    track tt repeated, 0x13xx stop (the place kept), 0x1400 resume from it.  Any other command: done, nothing played, one line printed - not known here.
 //  - the tracks: <the game's name>.cue beside it on the SD card - the EverDrive's OS turns MD+ on then (OutRun CD32X
 //    V33 on the console).  Track numbers as in the .cue.  BINARY (raw CD audio, 16-bit little-endian stereo 44.1 kHz)
 //    and WAVE files; one file for the disc or one a track.
@@ -30,6 +30,7 @@ struct MDPlus {
   FILE* fp = nullptr;
   string fpName;
   u32 playing = 0;                    //0: silent
+  u32 paused = 0;                     //the track a stop (0x13) left, for a resume (0x14)
   bool repeat = false;
   u64 pos = 0;                        //bytes into the track
   f64 owed = 0;                       //samples a frame (44,100 / the frame rate), the fraction carried
@@ -149,11 +150,16 @@ struct MDPlus {
         print("[MD+] play track ", arg, ": not an audio track of the .cue - nothing played\n");
         playing = 0; return;
       }
-      playing = arg; repeat = op == 0x12; pos = 0;
+      playing = arg; repeat = op == 0x12; pos = 0; paused = 0;
       if(log) print("[MD+] track ", arg, repeat ? " repeated\n" : " once\n");
     } else if(op == 0x13) {
+      if(playing) paused = playing; else paused = 0;
       playing = 0;
       if(log) print("[MD+] stop\n");
+    } else if(op == 0x14) {   //resume (MD+'s pause / resume pair: Super Hang-On CD32X FX's options menu)
+      if(paused) playing = paused;
+      paused = 0;
+      if(log) print("[MD+] resume\n");
     } else {
       print("[MD+] command ", hex(c, 4L), ": not known to this model - done, nothing changed\n");
     }

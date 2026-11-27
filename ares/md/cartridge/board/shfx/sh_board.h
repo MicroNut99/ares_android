@@ -13,7 +13,7 @@ typedef struct {
     const unsigned char* sprites;   /* 0x100000, big-endian words */
     const unsigned char* road;      /* 0x8000 */
 } shb_roms;
-typedef struct { unsigned char unknown, dsw, adc[4]; } shb_inputs;   /* coin / start / supercharger (active low), DIPs, steer gas brake - */
+typedef struct { unsigned char unknown, dsw, adc[4], coinage; } shb_inputs;   /* coin / start / supercharger (active low), DIPs, steer gas brake - */
 int      shb_init(const shb_roms* r);
 void     shb_line(int line, const shb_inputs* in);   /* one of the frame's 262 lines (0-261), in order */
 long     shb_pictures(void);                          /* pictures made so far (one at each line 224) */
@@ -21,8 +21,14 @@ int      shb_sub_irq4(void);                          /* the sub's IRQ4 line (li
 int      shb_take_sub_reset(void);                    /* the main CPU's RESET since the last call: restart the sub */
 unsigned shb_sub_read(unsigned off);                  /* the sub's world, 0x60000-0x9FFFF */
 void     shb_sub_write(unsigned off, unsigned data, unsigned mask);
+extern int shb_smooth;                                /* (kit 18) ROAD EDGES SOFT (register 0x22 bit 0) */
 int      shb_picture8(unsigned char* pix /* 320 x 224 */, unsigned short* pal /* 256 BGR555 */);
 int      shb_take_sound(void);                        /* the next sound command (a packet's first byte), -1 none */
+void     shb_pause(int on);                           /* (kit 7) register 0x20 bit 0: the main CPU stopped */
+unsigned shb_wram_read(unsigned off);                /* (kit 7) the main CPU's work RAM (0x1B0000-0x1B7FFF): a byte offset */
+void     shb_wram_write(unsigned off, unsigned data, unsigned mask);
+int      shb_display_enable(void);                    /* I/O 0x0000 bit 5 (0: the attract mode, its sound muted): register 0x06 bit 1 = !this */
+int      shb_take_latch(void);                        /* the sound board's bytes and resets, in order (bits 9-0 as register 0x48, bits 27-16 as 0x4A); -1 none */
 #ifdef __cplusplus
 }
 #endif

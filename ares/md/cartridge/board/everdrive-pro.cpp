@@ -822,11 +822,16 @@ struct EverDrivePro : Interface {
     if(sh2Clock && near(now, sh2Clock)) corrupt(sh2Word, data);  //the SH2 was on the cart just now
   }
 
+  EdioModel edio;
   auto readIO(n1 upper, n1 lower, n24 address, n16 data) -> n16 override {
-    return data;  //the registers are write-only
+    { static int dbg = getenv("ARES_IO_LOG") ? 1 : 0; if(dbg && (address & 0xffff00) == 0xa13000) printf("[io] r %06x\n", (u32)address); }
+    if(address >= 0xa130d0 && address <= 0xa130df) return edio.readIO(address, data);   //(edio: the MCU's FIFO, edio.hpp)
+    return data;  //the mapper's registers are write-only
   }
 
   auto writeIO(n1 upper, n1 lower, n24 address, n16 data) -> void override {
+    { static int dbg = getenv("ARES_IO_LOG") ? 1 : 0; if(dbg) printf("[io] w %06x %04x %d%d\n", (u32)address, (u32)data, (int)upper, (int)lower); }
+    if(address >= 0xa130d0 && address <= 0xa130df) { edio.writeIO(address, upper, lower, data); return; }
     if(address < 0xa130f0 || address > 0xa130ff) return;
     u32 n = address >> 1 & 7;
     if(ordbg) od.regWrite(n, data);
