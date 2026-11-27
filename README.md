@@ -6,7 +6,8 @@
 > Windows and Android. How to use it, how to build it (Windows, Android, and the `ares-headless`
 > test tool) and every build and command-line switch: **[README-CD32X.md](README-CD32X.md)**.
 > Downloads: the `cd32x-latest` (Windows) and `android-latest` (Android) releases, and the numbered `cd32x-v*` releases
-> (Windows, Linux, Android; v1.13: MD+ plays its music from the SD card).
+> (Windows, Linux, Android; v1.13: MD+ plays its music from the SD card; v1.14: Super Hang-On CD32X FX's cart core,
+> the EverDrive's SD-card I/O).
 > SEGA CD32X by MicroNut99 2026. The rest of this page is upstream ares' README.
 
 **ares** is a multi-system emulator that began development on October 14th, 2004.
