@@ -444,6 +444,42 @@ ares-headless --game OpenLaraCD32X_v14r1_PROF.cue --machine cd32x --bios-us us.b
   --press 310: --screenshot 1500:ol.ppm
 ```
 
+### The FX ports on the console against ares (26 Nov 2026)
+
+Figures read off the owner's console (his videos of the games' own panels, EverDrive PRO, the cart's FPGA core in use)
+next to the same build in `ares-headless` with `ARES_32X_TIMING=console` (v1.5) and the game's cart model. Sources:
+Super Hang-On CD32X FX `docs/13`, `docs/14` (MicroNut99/Super-Hang-On-CD32X-FX); OutRun CD32X
+`fpga/orfx/FINDINGS.md` (MicroNut99/CannonballCD32X, branch `edcd-14mb`, commit `4b7c3c7`). Where a console figure has no
+ares figure beside it, none was recorded.
+
+**What it shows:** ares v1.5 is close for code that runs alone on the master SH2 (OutRun's game tick: within ~10 %).
+It is **too fast whenever both SH2s use the cart bus or the frame buffer at once**: the slave's copy of a picture from
+the cart, the master's stream to the core while the slave copies, a pass over SDRAM and the frame buffer while the
+other SH2 copies. There the console takes **1.3x to 6x** the ares time, and ares' frame rate is no forecast.
+
+| Game, build | What | Console | ares (console timing) | Console / ares |
+|---|---|---|---|---|
+| OutRun V9-V10 | game tick (Cannonball's C, master SH2, mostly SDRAM/cache) | 17-21 ms | 15-19 ms | **~1.1** |
+| OutRun V6 | stream to the core (SEND), master, while the slave copies | 12-23 ms (9.3 ms at 118 words, 23.5 at 2,233) | 11.4 ms | 1.0-2.0 |
+| OutRun V7 | SEND after the register loop (`fx_putn`) | 7.8 ms at 228 words, 15.1 at 2,440: 7 ms fixed + 3.3 us a word | 6.3 ms | 1.2-2.4 |
+| OutRun V7 | game tick once the slave's copy overlaps it | 22-27 ms | 15-19 ms | ~1.4 |
+| OutRun V7-V9 | the race, FPS | **15** | 30 | 0.5 (FPS) |
+| OutRun kit 12/13 | plain pictures: the slave's wait for its copy (W.COPY) | 2.5-5.7 ms | 0.9 ms | **2.8-6.3** |
+| OutRun kit 12/13 | the same scenes, FPS | 19-20 | 30 | 0.65 (FPS) |
+| OutRun V23 | plain pictures (35,840 words) + panel: W.COPY / FPS | 45.2-53.9 ms / 8-9 FPS | - | |
+| OutRun V24 | race, ~1 cart word in 10,000 wrong: FPS | 16 / 12 / 9 | 16 / 12 / 9 with `ARES_ORFX_FAULT=pic=10000` | 1.0 (once the faults are modelled) |
+| OutRun, no core (`ordbg`) | the whole game on the SH2s: race FPS | **6** (118 ms drawing + 17-18 logic; ~340 ns a cart word) | - | |
+| Super Hang-On V21 | race with the picture check (each picture read twice) | FPS 53-60 | FPS 60, copy 11.5 ms | ~1.0-1.1 |
+| Super Hang-On V31-V32 | SH2 road smoothing pass (master, SDRAM + frame buffer, 48 lines; the slave plays the sound) | FX **13-29 ms**, MAX 58-66 ms | FX ~10 ms | **1.3-2.9** |
+| Super Hang-On V36 | the picture copy, run-length (master, cart -> frame buffer, SDRAM loop) | not read yet (panel off on V36/V37) | C 5.0 ms (8.3 before), FPS 60 | |
+| Super Hang-On V23 (lock-up) | panel while frozen | FPS 44, ARC 60, PIC 60 | - | |
+
+What would bring ares closer (none of it done yet): the two SH2s' contention on the cart bus during long copies
+(a whole picture read by one SH2 while the other runs from the cart or SDRAM); the frame buffer's write FIFO when the
+other SH2 also writes; the EverDrive PRO's cart cycle as the core answers it (Super Hang-On FX kit 17-19 answer each
+read in the cycle the 68000 bus allows; ares answers at once). Until then, for an FX port: **plan with the console's
+column**, and treat an ares FPS for a scene with a long copy as an upper bound.
+
 ### Build commands
 
 The probe disc (in the CD32X BootCamp folder; `EDCD=1` also makes the EverDrive launcher, and the
