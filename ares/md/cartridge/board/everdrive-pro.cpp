@@ -138,11 +138,10 @@ struct EverDrivePro : Interface {
     u16 copyVram[0x8800]; u8 copyPal[0x2000];
     bool copying = false; u32 copyBuf = 0, copyDone = 0; u64 copyStart = 0, copyLen = 0;
     static constexpr u32 CopyWords = 0x8800 + 0x1000;
-    auto clockNow() -> u64 {
-      if(m32x.shm.active()) return m32x.shm.clock();
-      if(m32x.shs.active()) return m32x.shs.clock();
-      return cpu.clock();
-    }
+    //the master SH2's cycles since power-on (monotonic). Was the active thread's clock(), which the scheduler rebases:
+    //a copy started before a rebase then never ended (28 Nov 2026: "now" below its start until the next go finished
+    //it - a 3 ms copy lasted a whole vblank, and a wait for it timed out at every picture)
+    auto clockNow() -> u64 { return m32x.shm.clockNow(); }
     auto copyTo(u32 n) -> void {                      //the words up to n written into the buffer
       for(; copyDone < n; copyDone++) {
         u32 w = copyDone;
@@ -378,7 +377,7 @@ struct EverDrivePro : Interface {
       } else {                                        //the state at the go (the core's writes wait meanwhile), landing
         memory::copy<u16>(copyVram, vram, 0x8800);    // word by word
         memory::copy<u8>(copyPal, pal[palBank], 0x2000);
-        copying = true; copyBuf = b; copyDone = 0; copyStart = clockNow(); copyLen = Thread::Second / 1'000'000 * (u64)us;
+        copying = true; copyBuf = b; copyDone = 0; copyStart = clockNow(); copyLen = 23'011'360ull * (u64)us / 1'000'000;
       }
       if(!(irqCtl & 8) && animTimer++ >= (u32)(irqCtl >> 8)) { animTimer = 0; sprFrame++; }
       vblanks++; frames++;

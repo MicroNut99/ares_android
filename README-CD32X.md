@@ -345,6 +345,12 @@ wait: 3 (at the boot), and 17.9 pictures a second against 24.8 - the take waits 
 (a go copies into the one neither the SH2s' nor the latest), and the model follows it (`ARES_NEO68K_BUFFERS=2` for r17):
 the log disc on it, 0 misread records and 24.9 pictures a second; Metal Slug v51 29.0, as v49.
 
+**Correction (28 Nov 2026):** the copy's clock was the active thread's `clock()`, which the scheduler rebases: a copy
+started before a rebase did not end until the next go finished it, so every copy lasted a whole vblank and a wait for
+one timed out. The "17.9 pictures a second" for v50's wait above came from that. The copy is now timed by the master
+SH2's own cycle count (`m32x.shm.clockNow()`, the recompiler's pending cycles included): v50's wait, v55's take and
+v56's all give 15.0 pictures a second in Mission 4 with 0 misreads.
+
 ### Build commands
 
 The probe disc (in the CD32X BootCamp folder; `EDCD=1` also makes the EverDrive launcher, and the
